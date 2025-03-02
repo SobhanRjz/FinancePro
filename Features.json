@@ -1,0 +1,94 @@
+{
+    "core_price_features": [
+        {"name": "open_price", "description": "Opening price per interval"},
+        {"name": "high_price", "description": "Highest price per interval"},
+        {"name": "low_price", "description": "Lowest price per interval"},
+        {"name": "close_price", "description": "Closing price per interval"},
+        {"name": "volume", "description": "Number of assets traded per interval"},
+        {"name": "vwap", "description": "Volume Weighted Average Price"}
+    ],
+    "technical_indicators": [
+        {"name": "sma_20", "description": "Simple Moving Average (20 periods)"},
+        {"name": "sma_50", "description": "Simple Moving Average (50 periods)"},
+        {"name": "sma_200", "description": "Simple Moving Average (200 periods)"},
+        {"name": "ema_20", "description": "Exponential Moving Average (20 periods)"},
+        {"name": "ema_50", "description": "Exponential Moving Average (50 periods)"},
+        {"name": "ema_200", "description": "Exponential Moving Average (200 periods)"},
+        {"name": "macd", "description": "Moving Average Convergence Divergence"},
+        {"name": "macd_signal", "description": "MACD Signal Line"},
+        {"name": "rsi_14", "description": "Relative Strength Index (14 periods)"},
+        {"name": "bollinger_upper", "description": "Upper Bollinger Band"},
+        {"name": "bollinger_lower", "description": "Lower Bollinger Band"},
+        {"name": "atr_14", "description": "Average True Range (14 periods)"},
+        {"name": "stochastic_k", "description": "Stochastic Oscillator %K"},
+        {"name": "stochastic_d", "description": "Stochastic Oscillator %D"},
+        {"name": "adx", "description": "Average Directional Index"},
+        {"name": "cci_14", "description": "Commodity Channel Index (14 periods)"}
+    ],
+    "statistical_features": [
+        {"name": "returns", "description": "Percentage price change from previous close"},
+        {"name": "log_returns", "description": "Log-transformed returns"},
+        {"name": "price_slope", "description": "Slope angle of price over a window"},
+        {"name": "price_acceleration", "description": "Second derivative of price"},
+        {"name": "z_score", "description": "Normalized price compared to moving average"},
+        {"name": "volatility_30", "description": "30-day rolling standard deviation of returns"},
+        {"name": "drawdown_max", "description": "Maximum drawdown over historical period"}
+    ],
+    "order_book_features": [
+        {"name": "bid_ask_spread", "description": "Difference between best bid and ask prices"},
+        {"name": "order_imbalance", "description": "Difference between bid and ask volumes"},
+        {"name": "top_5_bid_volume", "description": "Total bid volume in top 5 levels"},
+        {"name": "top_5_ask_volume", "description": "Total ask volume in top 5 levels"},
+        {"name": "slippage_estimate", "description": "Estimated slippage on large orders"}
+    ],
+    "time_features": [
+        {"name": "day_of_week", "description": "Day of the week (0 = Monday, 6 = Sunday)"},
+        {"name": "hour_of_day", "description": "Hour of the day (0-23)"},
+        {"name": "is_weekend", "description": "Whether the day is a weekend"},
+        {"name": "is_holiday", "description": "Whether the day is a known holiday"},
+        {"name": "market_session", "description": "Trading session (Asia, EU, US)"}
+    ],
+    "sentiment_features": [
+        {"name": "twitter_sentiment_score", "description": "Public sentiment from Twitter"},
+        {"name": "reddit_sentiment_score", "description": "Public sentiment from Reddit"},
+        {"name": "news_sentiment_score", "description": "Aggregated news sentiment"},
+        {"name": "google_trends_score", "description": "Relative search volume from Google Trends"},
+        {"name": "whale_transaction_alerts", "description": "Alerts on large wallet movements"}
+    ],
+    "on_chain_features": [
+        {"name": "active_addresses", "description": "Number of active addresses"},
+        {"name": "whale_wallet_movements", "description": "Large holder activity"},
+        {"name": "transaction_fees", "description": "Average transaction fees"},
+        {"name": "exchange_reserves", "description": "Total assets held on exchanges"},
+        {"name": "new_supply_mined", "description": "Newly mined supply (for BTC)"}
+    ],
+    "macro_features": [
+        {"name": "interest_rate", "description": "Current central bank interest rate"},
+        {"name": "inflation_rate", "description": "Current inflation rate"},
+        {"name": "fed_policy_events", "description": "Upcoming Fed events (meetings, decisions)"},
+        {"name": "gdp_growth_rate", "description": "Quarterly GDP growth rate"},
+        {"name": "employment_data", "description": "Non-farm payrolls or unemployment rate"},
+        {"name": "global_crypto_market_cap", "description": "Total market cap of all cryptocurrencies"},
+        {"name": "bitcoin_dominance", "description": "BTC market cap as percentage of total market cap"}
+    ],
+    "derived_features": [
+        {"name": "price_momentum_score", "description": "Aggregated momentum score from indicators"},
+        {"name": "trend_strength", "description": "Strength of current price trend"},
+        {"name": "mean_reversion_signal", "description": "Signal for mean reversion strategies"},
+        {"name": "trend_continuation_probability", "description": "Probability of trend continuation"},
+        {"name": "volatility_cluster_indicator", "description": "Clustering indicator for volatility"},
+        {"name": "market_regime_label", "description": "Classification of market regime (bull/bear/sideways)"}
+    ],
+    "tools_references": [
+        {"name": "TA-Lib", "url": "https://github.com/TA-Lib/ta-lib-python"},
+        {"name": "CCXT", "url": "https://github.com/ccxt/ccxt"},
+        {"name": "Tweepy", "url": "https://docs.tweepy.org"},
+        {"name": "Glassnode", "url": "https://glassnode.com/"},
+        {"name": "YFinance", "url": "https://pypi.org/project/yfinance/"},
+        {"name": "AlphaVantage", "url": "https://www.alphavantage.co/"}
+    ],
+    "metadata": {
+        "source": "Aggregated from research papers, quant trading blogs, and real-world AI trading systems.",
+        "last_updated": "2025-03-01"
+    }
+}

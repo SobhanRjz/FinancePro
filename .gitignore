@@ -165,9 +165,4 @@ cython_debug/
 
 # Project specific
 feature_engineering.log
-data/merged_features/
-data/process_*/
-*.pkl
-*.pkl.gz
-*.csv
-*.json 
+

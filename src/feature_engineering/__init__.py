@@ -206,22 +206,44 @@ if __name__ == "__main__":
                 
                 # Convert to DataFrame if it's not already
                 if not isinstance(df, pd.DataFrame):
-                    df = pd.DataFrame(df)
+                    df = pd.DataFrame(df).set_index('timestamp')
                 
                 if df.empty:
                     logger.warning(f"Empty dataframe from {file_path}, skipping")
                     continue
-                
+
+
+                if 'Sentiment_Features' in file_path:
+
+                    # Sum numeric columns and assign to googletrend for matching dates
+                    if merged_df is not None:
+                        numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
+                        if len(numeric_cols) > 0:
+                            numeric_sums = df[numeric_cols].sum(axis=1)
+                            merged_dates = pd.to_datetime(merged_df.index).date
+                            for idx, sum_val in numeric_sums.items():
+                                date_match = merged_dates == pd.to_datetime(idx).date()
+                                if date_match.any():
+                                    merged_df.at[merged_df.index[date_match][0], 'googletrend'] = sum_val
+
                 # Initialize merged_df if this is the first valid dataframe
                 if merged_df is None:
                     merged_df = df.copy()
                     logger.info(f"Initialized merged dataframe with {len(df.columns)} columns from {feature_dir}")
                 else:
-                    # Merge with existing dataframe
-                    # Assuming all dataframes have the same index or can be joined on index
-                    merged_df = merged_df.join(df, how='outer')
-                    logger.info(f"Merged {len(df.columns)} columns from {feature_dir}")
-            
+
+                    if 'Sentiment_Features' not in file_path:
+                        # Merge with existing dataframe
+                        # Merge dataframes where timestamps match
+                        # Skip columns that already exist in merged_df
+                        new_cols = [col for col in df.columns if col not in merged_df.columns]
+                        df[new_cols].drop('timestamp', axis=1, errors='ignore')
+                        if new_cols:
+                            # Only merge new columns from df
+                            merged_df = pd.merge(merged_df, df[new_cols], left_index=True, right_index=True, how='outer')
+
+                        logger.info(f"Merged {len(df.columns)} columns from {feature_dir}")
+                
             except Exception as e:
                 logger.error(f"Error processing {file_path}: {e}")
         
@@ -229,17 +251,17 @@ if __name__ == "__main__":
             merged_features[key] = merged_df
             
             # Save the merged features
-            if save_output:
-                output_dir = os.path.join(args.data_dir, 'merged_features')
-                os.makedirs(output_dir, exist_ok=True)
-                
-                output_file = os.path.join(output_dir, f"merged_{key}.pkl.gz")
-                try:
-                    with gzip.open(output_file, 'wb') as f:
-                        pickle.dump(merged_df, f)
-                    logger.info(f"Saved merged features for {key} to {output_file}")
-                except Exception as e:
-                    logger.error(f"Error saving merged features for {key}: {e}")
+           
+            output_dir = os.path.join(args.data_dir, 'merged_features')
+            os.makedirs(output_dir, exist_ok=True)
+            
+            output_file = os.path.join(output_dir, f"merged_{key}.pkl.gz")
+            try:
+                with gzip.open(output_file, 'wb') as f:
+                    pickle.dump(merged_df, f)
+                logger.info(f"Saved merged features for {key} to {output_file}")
+            except Exception as e:
+                logger.error(f"Error saving merged features for {key}: {e}")
     
     # Use the first merged dataframe as the result, or None if no merges were successful
     features = next(iter(merged_features.values())) if merged_features else None

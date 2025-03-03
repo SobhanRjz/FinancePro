@@ -123,6 +123,9 @@ class OrderBookFeatureExtractor:
             spread_features = self.calculate_bid_ask_spread(datacopy)
             data["rolling_spread_30"] = spread_features["rolling_spread_30"]
             data["expanding_spread"] = spread_features["expanding_spread"]
+            data["timestamp"] = datacopy["timestamp"]
+            data = data.set_index("timestamp")
+            
             data = data.ffill().bfill()
             if spread_features is None:
                 logging.warning(f"Skipping file {file_path} due to feature calculation error")
@@ -148,6 +151,6 @@ class OrderBookFeatureExtractor:
 # Example usage
 if __name__ == "__main__":
     extractor = OrderBookFeatureExtractor()
-    features = extractor.extract_features()
+    features = extractor.process_all_files()
     if features is not None:
         print(features.head())

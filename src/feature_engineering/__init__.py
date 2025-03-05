@@ -224,9 +224,13 @@ if __name__ == "__main__":
                             for idx, sum_val in numeric_sums.items():
                                 date_match = merged_dates == pd.to_datetime(idx).date()
                                 if date_match.any():
-                                    merged_df.at[merged_df.index[date_match][0], 'googletrend'] = sum_val
+                                    for idx in merged_df.index[date_match]:
+                                        merged_df.at[idx, 'googletrend'] = sum_val
 
                 # Initialize merged_df if this is the first valid dataframe
+                # Ensure index is Timestamp type
+                if df.index.dtype != 'datetime64[ns]':
+                    df.index = pd.to_datetime(df.index)
                 if merged_df is None:
                     merged_df = df.copy()
                     logger.info(f"Initialized merged dataframe with {len(df.columns)} columns from {feature_dir}")
@@ -269,5 +273,5 @@ if __name__ == "__main__":
     if features is not None:
         print(f"Generated {len(features.columns)} features for {len(features)} samples")
         print("\nFeature columns:")
-        for col in features.columns:
-            print(f"- {col}") 
+        for i, col in enumerate(features.columns, 1):
+            print(f"{i}. {col}")

@@ -74,11 +74,9 @@ class TimeFeatureExtractor:
         # Is weekend (Saturday or Sunday)
         result_df['is_weekend'] = result_df['day_of_week'].isin([5, 6]).astype(int)
         
-        # Is holiday (US or EU)
-        result_df['is_holiday'] = df['timestamp'].dt.date.apply(
-            lambda x: x in self.us_holidays or x in self.eu_holidays
-        ).astype(int)
-        
+
+        result_df["timestamp"] = df["timestamp"]
+        result_df.set_index("timestamp", inplace=True)
         # Market session
         # Asia: 22:00-07:00 UTC
         # Europe: 07:00-16:00 UTC
@@ -101,7 +99,37 @@ class TimeFeatureExtractor:
         # Convert market_session to categorical for better memory usage
         result_df['market_session'] = pd.Categorical(result_df['market_session'], 
                                                     categories=['Asia', 'EU', 'US'])
+
+        # Add holiday flags for each market session
+        dates = pd.DatetimeIndex(result_df.index).date
         
+        # Convert dates to numpy array for vectorized comparison
+        dates_arr = np.array(dates)
+        
+        # Create holiday arrays
+        jp_holidays = np.array([d for d in holidays.JP()])
+        cn_holidays = np.array([d for d in holidays.CN()])
+        eu_holidays = np.array([d for d in self.eu_holidays])
+        us_holidays = np.array([d for d in self.us_holidays])
+        
+        # Vectorized holiday checks
+        is_asia_holiday = np.isin(dates_arr, jp_holidays) | np.isin(dates_arr, cn_holidays)
+        is_eu_holiday = np.isin(dates_arr, eu_holidays) 
+        is_us_holiday = np.isin(dates_arr, us_holidays)
+        
+        # Convert to int arrays
+        is_asia_holiday = is_asia_holiday.astype(int)
+        is_eu_holiday = is_eu_holiday.astype(int)
+        is_us_holiday = is_us_holiday.astype(int)
+        
+        # Add combined market session + holiday feature
+        market_holiday = np.zeros(len(result_df))
+        market_holiday[(result_df['market_session'] == 'Asia') & is_asia_holiday] = 1
+        market_holiday[(result_df['market_session'] == 'EU') & is_eu_holiday] = 1 
+        market_holiday[(result_df['market_session'] == 'US') & is_us_holiday] = 1
+        
+        result_df['market_holiday'] = market_holiday
+
         # Set timestamp back as index if it was the index before
         if isinstance(df.index, pd.DatetimeIndex):
             result_df = result_df.set_index('timestamp')

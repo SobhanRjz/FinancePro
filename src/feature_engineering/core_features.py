@@ -13,6 +13,7 @@ from models.cryptoModel import Crypto
 import json
 import gzip
 import pickle
+import pandas as pd
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -21,6 +22,10 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
+
+
+import yfinance as yf
+
 
 class CoreFeatureExtractor:
     """Class for fetching cryptocurrency price data using Binance API through CCXT"""
@@ -36,13 +41,76 @@ class CoreFeatureExtractor:
         }
         logger.info("CryptoDataFetcher initialized")
 
+    def get_crypto_data_yahoo(self, timeframe='1d', period='10y'):
+        """
+        Fetch cryptocurrency data from Yahoo Finance
+        
+        Args:
+            timeframe (str): Timeframe for the data (e.g., '1d', '1h', etc.)
+            period (str): Time period to fetch (default: '10y')
+            
+        Returns:
+            list: List of dictionaries containing formatted crypto data
+        """
+        logger.info(f"Fetching BTC data from Yahoo Finance for period {period} with {timeframe} timeframe")
+        
+        try:
+            # Calculate start date (10 years ago from now)
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=365 * 10)
+            
+            # Format dates for yfinance
+            start_date_str = start_date.strftime("%Y-%m-%d")
+            end_date_str = end_date.strftime("%Y-%m-%d")
+            
+            # Map timeframe to yfinance interval
+            interval_mapping = {
+                '1d': '1d', '1h': '1h', '5m': '5m', '15m': '15m', '30m': '30m',
+                '4h': '1h'  # yfinance doesn't have 4h, use 1h and resample later if needed
+            }
+            
+            interval = interval_mapping.get(timeframe, '1d')
+            
+            # Download data from Yahoo Finance
+            btc_data = yf.download("BTC-USD", start=start_date_str, end=end_date_str, interval=interval)
+            
+            # Format data to match our expected structure
+            formatted_data = []
+            
+            for timestamp, row in btc_data.iterrows():
+                # Calculate typical price (TP) for VWAP
+                typical_price = (float(row['High']) + float(row['Low']) + float(row['Close'])) / 3
+                
+                # For VWAP calculation, we would need to track cumulative values
+                # but for simplicity, we'll just include the typical price here
+                
+                formatted_data.append({
+                    'cryptoname': 'BTC',
+                    'timeframe': timeframe,
+                    'period': period,
+                    'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                    'open': float(row['Open']),
+                    'high': float(row['High']),
+                    'low': float(row['Low']),
+                    'close': float(row['Close']),
+                    'volume': float(row['Volume']),
+                    'vwap': typical_price  # This is not true VWAP, just a placeholder
+                })
+            
+            logger.info(f"Successfully fetched {len(formatted_data)} records from Yahoo Finance")
+            return formatted_data
+            
+        except Exception as e:
+            logger.error(f"Error fetching data from Yahoo Finance: {e}")
+            return []
     def fetch_currency_data(self, symbol='BTCUSDT', timeframe='3m', period='1d'):
-        """Fetch cryptocurrency candle data using Playwright
+        """Fetch cryptocurrency candle data using HTTP requests with optional proxy support
         
         Args:
             symbol (str): Trading pair symbol (default: 'BTCUSDT')
             timeframe (str): Candle timeframe (default: '3m')
             period (str): Time period to fetch (default: '1d', format: '1d', '1w', '1y', etc.)
+            proxy (str): Optional proxy URL (default: None)
             
         Returns:
             list[Crypto]: List of Crypto objects with the fetched data
@@ -68,35 +136,49 @@ class CoreFeatureExtractor:
         
         formatted_data = []
         
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            
-            try:
-                formatted_data = self._fetch_historical_data(
-                    page, symbol, timeframe, period, crypto_name, 
+        try:
+            if period != '10y':
+                formatted_data = self._fetch_historical_data_with_requests(
+                    symbol, timeframe, period, crypto_name, 
                     total_candles, end_time, limit
                 )
-            except Exception as e:
-                logger.error(f"Error fetching data from Binance API: {e}")
-                return []
-            finally:
-                browser.close()
-            
-            # Sort data by timestamp (oldest to newest)
-            formatted_data.sort(key=lambda x: datetime.strptime(x['timestamp'], '%Y-%m-%d %H:%M:%S'))
-            
-            logger.info(f"Successfully fetched {len(formatted_data)} candles for {symbol}")
-            return [Crypto(**item) for item in formatted_data]
+            else:
+                formatted_data = self.get_crypto_data_yahoo(
+                    timeframe, period
+                )
+        except Exception as e:
+            logger.error(f"Error fetching data from Binance API: {e}")
+            return []
+        
+        # Sort data by timestamp (oldest to newest)
+        formatted_data.sort(key=lambda x: datetime.strptime(x['timestamp'], '%Y-%m-%d %H:%M:%S'))
+        
+        logger.info(f"Successfully fetched {len(formatted_data)} candles for {symbol}")
+        # Convert formatted_data to a DataFrame
+        
+        df = pd.DataFrame(formatted_data)
+        
+        # Set timestamp as index
+        df.set_index('timestamp', inplace=True)
+        
+        # Convert DataFrame rows to Crypto objects
+        return df
 
-    def _fetch_historical_data(self, page, symbol, timeframe, period, crypto_name, 
+    def get_crypto_data_binance(self, symbol, timeframe, period, crypto_name, 
                                     total_candles, end_time, limit):
-        """Helper method to fetch historical data with pagination"""
+        """Helper method to fetch historical data with pagination using requests with proxy support"""
         formatted_data = []
         remaining_candles = total_candles
         current_end_time = end_time
         price_volume_sum = 0
         volume_sum = 0
+        
+        # Configure proxy if provided
+        proxy = {
+            'http': 'http://127.0.0.1:10808',
+            'https': 'http://127.0.0.1:10808'
+        }
+        
         while remaining_candles > 0:
             # Calculate how many candles to fetch in this request
             batch_size = min(remaining_candles, limit)
@@ -104,14 +186,25 @@ class CoreFeatureExtractor:
             # Construct URL with endTime parameter
             url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={timeframe}&limit={batch_size}&endTime={current_end_time}"
             
-            page.goto(url)
-            
-            # Extract JSON response as plain text from the page body
-            content = page.evaluate("() => document.body.innerText")
-            
             try:
-                data = json.loads(content)
+                # Make request with optional proxy
+                import requests
                 
+                # Set up headers to mimic a browser request
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Accept': 'application/json',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Connection': 'keep-alive'
+                }
+                
+                try:
+                    response = requests.get(url, proxies=proxy, headers=headers, timeout=30.0)
+                    response.raise_for_status()  # Raise exception for HTTP errors
+                    data = response.json()
+                except requests.RequestException as req_err:
+                    logger.error(f"Request error: {req_err}")
+                    raise
                 if not data:  # No more data available
                     break
                     
@@ -156,9 +249,8 @@ class CoreFeatureExtractor:
                 # Add a small delay to avoid rate limiting
                 sleep(0.5)
                 
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON: {e}")
-                logger.debug(f"Raw content: {content[:100]}...")  # Print first 100 chars for debugging
+            except (httpx.HTTPError, json.JSONDecodeError) as e:
+                logger.error(f"Error fetching data: {e}")
                 break
         
         return formatted_data
@@ -316,7 +408,7 @@ class CoreFeatureExtractor:
             
             if currency_data:
                 # Save data to database and pickle file
-                self.save_to_database(currency_data)
+                #self.save_to_database(currency_data)
                 self.save_to_pickle(currency_data, f'data/{symbol}_{timeframe}_{period}.pkl.gz')
                 logger.info(f"Data collection completed for {symbol}")
             else:
@@ -334,7 +426,7 @@ if __name__ == "__main__":
         crypto_fetcher = CoreFeatureExtractor()
         
         # Define timeframes to collect
-        timeframes = [ '5m', '1h', '4h', '1d']
+        timeframes = [ '1d', '4h', '1h', '5m']
         symbol = 'BTCUSDT'
         
         # Collect data for each timeframe with recommended periods

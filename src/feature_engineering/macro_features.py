@@ -35,8 +35,34 @@ class MacroFeatureExtractor:
             'http': 'http://127.0.0.1:10808',
             'https': 'http://127.0.0.1:10808'
         }
+    
+    def resample_data(self, df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+        """
+        Resample data to the specified timeframe
+        
+        Args:
+            df (pd.DataFrame): DataFrame to resample
+            timeframe (str): Timeframe to resample to (e.g., '1d', '4h', '1h', '5m')
+            
+        Returns:
+            pd.DataFrame: Resampled DataFrame
+        """
+        # Handle different timeframes for resampling
+        if timeframe.lower() == '1d':
+            resampled_df = df.resample('D').ffill()
+        elif timeframe.lower() == '4h':
+            resampled_df = df.resample('4h').ffill()
+        elif timeframe.lower() == '1h':
+            resampled_df = df.resample('h').ffill()
+        elif timeframe.lower() == '5m':
+            resampled_df = df.resample('5min').ffill()
+        else:
+            # Resample to daily frequency and forward fill for other timeframes
+            resampled_df = df.resample('D').ffill()
+            
+        return resampled_df
 
-    def fetch_employment_data(self, start_date: str) -> Optional[pd.DataFrame]:
+    def fetch_employment_data(self, start_date: str, timeframe: str) -> Optional[pd.DataFrame]:
         """
         Fetch employment data from FRED including Non-Farm Payrolls and Unemployment Rate
         
@@ -61,8 +87,9 @@ class MacroFeatureExtractor:
             
             df.index.name = 'timestamp'
             
+
             # Resample to daily frequency and forward fill
-            df = df.resample('D').ffill()
+            df = self.resample_data(df, timeframe)
             
             return df
             
@@ -70,17 +97,22 @@ class MacroFeatureExtractor:
             logging.error(f"Error fetching employment data: {e}")
             return None
 
-    def get_bitcoin_dominance(self, start_date: str, global_market_cap: pd.DataFrame) -> Optional[pd.DataFrame]:
+    def get_bitcoin_dominance(self, start_date: str, global_market_cap: pd.DataFrame, timeframe: str) -> Optional[pd.DataFrame]:
         """
         Fetch Bitcoin dominance data from CoinCodex API
         
         Args:
             start_date (str): Start date in YYYY-MM-DD format
-            end_date (str): End date in YYYY-MM-DD format
+            timeframe (str): Timeframe of the data (e.g., '1d', '4h', etc.)
+            global_market_cap (pd.DataFrame): DataFrame containing global market cap data
             
         Returns:
             Optional[pd.DataFrame]: DataFrame with Bitcoin dominance data or None if request fails
         """
+        import pandas as pd
+        import requests
+        import time
+
         try:
             end_date = pd.Timestamp.now().strftime('%Y-%m-%d')
             # Define headers for the API request
@@ -92,61 +124,108 @@ class MacroFeatureExtractor:
                 "Accept-Encoding": "br"
             }
             
-            # API endpoint for Bitcoin historical data
-            url = f"https://coincheckup.com/api/v1/coins/get_coin_history/BTC/{start_date}/{end_date}/1000000"
+            # Parse start_date to get year
+            start_year = pd.to_datetime(start_date).year
+            current_year = pd.Timestamp.now().year
             
-            # Make the request
-            response = requests.get(url, proxies=self.proxy, headers=headers)
-            response.raise_for_status()
+            # Initialize empty DataFrame to store all data
+            all_btc_data = pd.DataFrame()
             
-            # Parse the JSON response
-            data = response.json()
+            # Fetch data in 6-month intervals
+            start_date_dt = pd.to_datetime(start_date)
+            end_date_dt = pd.to_datetime(end_date)
             
-            # Extract the Bitcoin data
-            btc_data = data.get('BTC', [])
-            
-            # Create DataFrame from the data
-            # Format: [timestamp, price, volume, market_cap]
-            df = pd.DataFrame(btc_data, columns=['timestamp', 'price', 'volume', 'btc_market_cap'])
-            
-            # Convert timestamp to datetime
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
-            df.set_index('timestamp', inplace=True)
-            
-            # Get global market cap data for the same period
-            #global_market_cap = self.get_global_crypto_market_cap(start_date, end_date)
-            
-            if global_market_cap is not None:
-                # Merge the dataframes
-                merged_df = pd.merge(df, global_market_cap, left_index=True, right_index=True, how='inner')
+            # Generate 6-month intervals
+            current_start = start_date_dt
+            while current_start <= end_date_dt:
+                # Calculate end of current 6-month period
+                current_end = min(
+                    current_start + pd.DateOffset(months=6) - pd.DateOffset(days=1),
+                    end_date_dt
+                )
                 
-                # Calculate Bitcoin dominance
-                merged_df['btc_dominance'] = (merged_df['btc_market_cap'] / merged_df['Total_market_cap']) * 100
+                # Format dates for API
+                period_start = current_start.strftime('%Y-%m-%d')
+                period_end = current_end.strftime('%Y-%m-%d')
                 
-                # Select only the dominance column
-                dominance_df = merged_df[['btc_dominance']].copy()
+                # API endpoint for Bitcoin historical data for 6-month period
+                url = f"https://coincheckup.com/api/v1/coins/get_coin_history/BTC/{period_start}/{period_end}/1000000"
                 
-                # Resample to daily frequency and forward fill
-                dominance_df = dominance_df.resample('D').ffill()
+                try:
+                    # Make the request with timeout and retry logic
+                    for attempt in range(3):  # Try up to 3 times
+                        try:
+                            response = requests.get(url, proxies=self.proxy, headers=headers, timeout=30)
+                            response.raise_for_status()
+                            break
+                        except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
+                            if attempt == 2:  # Last attempt
+                                logging.warning(f"Failed to fetch Bitcoin data for period {period_start} to {period_end}: {e}")
+                                raise
+                            time.sleep(2)  # Wait before retrying
+                    
+                    # Parse the JSON response
+                    data = response.json()
+                    
+                    # Extract the Bitcoin data
+                    btc_data = data.get('BTC', [])
+                    
+                    if btc_data:
+                        # Create DataFrame from the data
+                        # Format: [timestamp, price, volume, market_cap]
+                        period_df = pd.DataFrame(btc_data, columns=['timestamp', 'price', 'volume', 'btc_market_cap'])
+                        
+                        # Convert timestamp to datetime
+                        period_df['timestamp'] = pd.to_datetime(period_df['timestamp'], unit='s')
+                        period_df.set_index('timestamp', inplace=True)
+                        
+                        # Append to the main DataFrame
+                        all_btc_data = pd.concat([all_btc_data, period_df])
                 
-                return dominance_df
+                except Exception as e:
+                    logging.error(f"Error processing Bitcoin data for period {period_start} to {period_end}: {e}")
+                    # Continue with the next period instead of failing completely
+                
+                # Move to next 6-month period
+                current_start = current_end + pd.DateOffset(days=1)
+            
+            # Sort by timestamp
+            if not all_btc_data.empty:
+                # Sort by timestamp and remove duplicate indices
+                all_btc_data = all_btc_data.sort_index()
+                all_btc_data = all_btc_data[~all_btc_data.index.duplicated(keep='first')]
+                all_btc_data = self.resample_data(all_btc_data, timeframe)
+                
+
+                
+                if global_market_cap is not None:
+                    # Merge the dataframes
+                    merged_df = pd.merge(all_btc_data, global_market_cap, left_index=True, right_index=True, how='inner')
+                    
+                    # Calculate Bitcoin dominance
+                    merged_df['btc_dominance'] = (merged_df['btc_market_cap'] / merged_df['Total_market_cap']) * 100
+                    
+                    # Select only the dominance column
+                    dominance_df = merged_df[['btc_dominance']].copy()
+                    
+                    # Ensure timestamp is the index
+                    if dominance_df.index.name != 'timestamp':
+                        dominance_df.index.name = 'timestamp'
+                    
+                    return dominance_df
             
             return None
-            
         except Exception as e:
             logging.error(f"Error fetching Bitcoin dominance data: {e}")
             return None
 
-
-
-
-
-    def get_global_crypto_market_cap(self, start_date: str, period: str) -> Optional[pd.DataFrame]:
+    def get_global_crypto_market_cap(self, start_date: str, timeframe: str) -> Optional[pd.DataFrame]:
         """
         Fetch global cryptocurrency market capitalization data from CoinCodex API
         
         Args:
             start_date (str): Start date in YYYY-MM-DD format
+            timeframe (str): Timeframe of the data (e.g., 'day', '1h', etc.)
             
         Returns:
             Optional[pd.DataFrame]: DataFrame with global crypto market cap data or None if request fails
@@ -197,8 +276,7 @@ class MacroFeatureExtractor:
             # Filter data starting from start_date
             df = df[df.index >= start_date_dt]
             
-            # Resample to daily frequency and forward fill
-            df = df.resample('D').ffill()
+            df = self.resample_data(df, timeframe)
             
             return df
             
@@ -206,7 +284,7 @@ class MacroFeatureExtractor:
             logging.error(f"Error fetching global crypto market cap data: {e}")
             return None
     
-    def fetch_us_gdp_growth(self, start_date: str) -> Optional[pd.DataFrame]:
+    def fetch_us_gdp_growth(self, start_date: str, timeframe: str) -> Optional[pd.DataFrame]:
         """
         Fetch US GDP growth rate data from FRED
         
@@ -224,8 +302,7 @@ class MacroFeatureExtractor:
             df = pd.DataFrame(gdp_growth, columns=['gdp_growth_rate'])
             df.index.name = 'timestamp'
             
-            # Resample to daily frequency and forward fill
-            df = df.resample('D').ffill()
+            df = self.resample_data(df, timeframe)
             
             return df
             
@@ -233,7 +310,7 @@ class MacroFeatureExtractor:
             logging.error(f"Error fetching GDP growth rate data: {e}")
             return None
     
-    def get_fomc_meetings(self, start_date: str) -> Optional[pd.DataFrame]:
+    def get_fomc_meetings(self, start_date: str, timeframe: str) -> Optional[pd.DataFrame]:
         """
         Fetch FOMC meeting dates from Federal Reserve and Fraser Database
         
@@ -260,6 +337,7 @@ class MacroFeatureExtractor:
 
             result['timestamp'] = pd.to_datetime(result['timestamp'])
             result.set_index('timestamp', inplace=True)
+            result = self.resample_data(result, timeframe)
 
             return result
             
@@ -344,7 +422,7 @@ class MacroFeatureExtractor:
 
         return pd.DataFrame(all_days) if all_days else pd.DataFrame(columns=['timestamp', 'fed_meeting', 'pre_meeting', 'post_meeting'])
 
-    def get_interest_rates(self, start_date: str) -> Optional[pd.DataFrame]:
+    def get_interest_rates(self, start_date: str, timeframe: str) -> Optional[pd.DataFrame]:
         """
         Fetch Federal Funds Rate data from FRED
         
@@ -359,14 +437,14 @@ class MacroFeatureExtractor:
             interest_rates = self.fred.get_series('DFF', start_date)  # Get daily frequency
             interest_rates = pd.DataFrame(interest_rates, columns=['interest_rate'])
             interest_rates.index.name = 'timestamp'
-            # Forward fill missing values since Fed Funds Rate is reported monthly
-            interest_rates = interest_rates.resample('D').ffill()
+
+            interest_rates = self.resample_data(interest_rates, timeframe)
             return interest_rates
         except Exception as e:
             logging.error(f"Error fetching interest rate data: {e}")
             return None
 
-    def get_inflation_rate(self, start_date: str) -> Optional[pd.DataFrame]:
+    def get_inflation_rate(self, start_date: str, timeframe: str) -> Optional[pd.DataFrame]:
         """
         Fetch US inflation rate data from FRED using CPI data
         
@@ -384,12 +462,28 @@ class MacroFeatureExtractor:
             inflation_df = pd.DataFrame(cpi, columns=['CPI'])
             inflation_df.index.name = 'timestamp'
             
-            # Calculate year-over-year inflation rate
-            inflation_df['inflation_rate'] = inflation_df['CPI'].pct_change(periods=12) * 100
-            
+
+            # Calculate Inflation Rate (MoM % Change)
+            inflation_df['inflation_rate_mom'] = inflation_df['CPI'].pct_change() * 100
+
+            # Calculate Inflation Rate (YoY % Change)
+            inflation_df['inflation_rate_yoy'] = inflation_df['CPI'].pct_change(12) * 100
+
             # Resample to daily frequency and forward fill
-            inflation_df = inflation_df.resample('D').ffill()
+            inflation_df = self.resample_data(inflation_df, timeframe)
+
+            # First forward fill to propagate existing values
+            inflation_df = inflation_df.ffill()
             
+            # Then backward fill to handle any remaining NaN values at the beginning
+            inflation_df = inflation_df.bfill()
+            
+            # Log the number of missing values after filling
+            missing_values = inflation_df.isna().sum().sum()
+            if missing_values > 0:
+                logging.warning(f"There are still {missing_values} missing values in inflation data after filling")
+            else:
+                logging.info("Successfully filled all missing values in inflation data")
             return inflation_df
             
         except Exception as e:
@@ -438,17 +532,37 @@ class MacroFeatureExtractor:
 
                 # Fetch interest rate data
 
-                crypto_market_cap = self.get_global_crypto_market_cap(start_date_str, period)
-                bitcoin_dominance = self.get_bitcoin_dominance(start_date_str, crypto_market_cap)
-                employment_data = self.fetch_employment_data(start_date_str)
-                gdp_growth = self.fetch_us_gdp_growth(start_date_str)
-                meetings = self.get_fomc_meetings(start_date_str)
-                interest_rates = self.get_interest_rates(start_date_str)
-                inflation_rate = self.get_inflation_rate(start_date_str)
+                # Fetch all macro features
+                inflation_rate = self.get_inflation_rate(start_date_str, timeframe)
+                interest_rates = self.get_interest_rates(start_date_str, timeframe)
+                crypto_market_cap = self.get_global_crypto_market_cap(start_date_str, timeframe)
+                bitcoin_dominance = self.get_bitcoin_dominance(start_date_str, crypto_market_cap, timeframe)
+                employment_data = self.fetch_employment_data(start_date_str, timeframe)
+                gdp_growth = self.fetch_us_gdp_growth(start_date_str, timeframe)
+                meetings = self.get_fomc_meetings(start_date_str, timeframe)
 
-                # Merge interest rate and inflation rate data
-                df = pd.merge(interest_rates, inflation_rate, left_index=True, right_index=True, how='left')
+                # Initialize with first dataframe
+                df = interest_rates
                 
+                # Merge all dataframes
+                dataframes = [inflation_rate, employment_data, gdp_growth, meetings, crypto_market_cap, bitcoin_dominance]
+                for data in dataframes:
+                    if data is not None:
+                        df = pd.merge(df, data, left_index=True, right_index=True, how='left')
+
+                # Fill missing values with zero for FOMC meeting related columns
+                if 'fed_meeting' in df.columns:
+                    df['fed_meeting'].fillna(0, inplace=True)
+                
+                if 'post_meeting' in df.columns:
+                    df['post_meeting'].fillna(0, inplace=True)
+                
+                if 'pre_meeting' in df.columns:
+                    df['pre_meeting'].fillna(0, inplace=True)
+                
+                # Log the columns that were filled
+                logging.info(f"Filled missing values with zeros in FOMC meeting columns")
+
                 if interest_rates is None:
                     logging.warning("No interest rate data available - skipping")
                     continue

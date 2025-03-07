@@ -10,6 +10,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
 class OrderBookFeatureExtractor:
     def __init__(self, data_dir='data/OHLCV'):
         """

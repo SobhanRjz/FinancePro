@@ -152,7 +152,6 @@ class CoreFeatureExtractor:
         
         # Sort data by timestamp (oldest to newest)
         formatted_data.sort(key=lambda x: datetime.strptime(x['timestamp'], '%Y-%m-%d %H:%M:%S'))
-        
         logger.info(f"Successfully fetched {len(formatted_data)} candles for {symbol}")
         # Convert formatted_data to a DataFrame
         

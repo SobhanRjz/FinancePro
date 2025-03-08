@@ -10,6 +10,50 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+import ccxt
+import pandas as pd
+import time
+import requests
+
+# Binance API endpoint for historical trades
+BINANCE_API_URL = "https://api.binance.com/api/v3/aggTrades"
+
+# Define the symbol (BTC/USDT) and start timestamp
+symbol = "BTCUSDT"
+start_time = int(pd.Timestamp("2015-01-01").timestamp() * 1000)  # Convert to milliseconds
+
+# Store all trades
+all_trades = []
+limit = 1000  # Binance max trades per request
+proxies = {
+    "http": "http://127.0.0.1:10808",
+    "https": "http://127.0.0.1:10808"
+}
+url = "https://fapi.binance.com/futures/data/openInterestHist"
+params = {
+    "symbol": "BTCUSDT",
+    "period": "1d",
+    "limit": 30  # Get last 30 days
+}
+
+response = requests.get(url, params=params, proxies=proxies)
+open_interest_data = response.json()
+open_interest_data = pd.DataFrame(open_interest_data)
+# Convert timestamp from milliseconds to datetime format
+open_interest_data['timestamp'] = pd.to_datetime(open_interest_data['timestamp'], unit='ms')
+
+# Format the timestamp column to be more readable
+open_interest_data['timestamp'] = open_interest_data['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+
+# Ensure numeric columns are properly formatted
+if 'sumOpenInterest' in open_interest_data.columns:
+    open_interest_data['sumOpenInterest'] = pd.to_numeric(open_interest_data['sumOpenInterest'])
+if 'sumOpenInterestValue' in open_interest_data.columns:
+    open_interest_data['sumOpenInterestValue'] = pd.to_numeric(open_interest_data['sumOpenInterestValue'])
+
+
+for day in open_interest_data:
+    print(f"Date: {day['timestamp']}, Open Interest: {day['sumOpenInterestValue']}")
 
 class OrderBookFeatureExtractor:
     def __init__(self, data_dir='data/OHLCV'):

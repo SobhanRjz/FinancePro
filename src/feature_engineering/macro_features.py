@@ -9,7 +9,8 @@ import requests
 import gzip
 import json
 from io import BytesIO
-
+from datetime import datetime
+from fake_useragent import UserAgent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -36,6 +37,7 @@ class MacroFeatureExtractor:
             'https': 'http://127.0.0.1:10808'
         }
     
+
     def resample_data(self, df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
         """
         Resample data to the specified timeframe
@@ -62,6 +64,100 @@ class MacroFeatureExtractor:
             
         return resampled_df
 
+    def get_us_dollar_index(self, start_date: str = '20151101', end_date: str = None, timeframe: str = '1d') -> Optional[pd.DataFrame]:
+        """
+        Fetch US Dollar Index (DXY) data using Playwright
+        
+        Args:
+            start_date (str): Start date in YYYYMMDD format (default: '20151101')
+            end_date (str): End date in YYYYMMDD format (default: current date)
+            timeframe (str): Timeframe to resample to (e.g., '1d', '4h', '1h', '5m')
+            
+        Returns:
+            Optional[pd.DataFrame]: DataFrame with US Dollar Index data or None if request fails
+        """
+        try:
+            # Set end date to current date if not provided
+            if end_date is None:
+                end_date = datetime.now().strftime('%Y%m%d')
+            
+            # Convert dates to timestamps
+            start_timestamp = int(datetime.strptime(start_date, '%Y-%m-%d').timestamp())
+            end_timestamp = int(datetime.now().timestamp())
+            
+            # Use Playwright to fetch data
+            from playwright.sync_api import sync_playwright
+            
+            with sync_playwright() as p:
+                # Launch browser in headless mode
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                
+                # Set user agent
+                page.set_extra_http_headers({
+                    'User-Agent': UserAgent().random,
+                    'Accept': 'application/json, text/javascript, */*; q=0.01',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Referer': 'https://www.investing.com',
+                    'Origin': 'https://www.investing.com'
+                })
+                
+                if timeframe == '1d':
+                    resolution = 'D'
+                elif timeframe == '4h':
+                    resolution = '240'
+                elif timeframe == '1h':
+                    resolution = '60'
+                elif timeframe == '5m':
+                    resolution = '50'
+                    
+                # Construct the API URL with parameters
+                url = f"https://tvc4.investing.com/ea89217fb58266dde61d40b25e07c0d0/1741461861/1/1/8/history?symbol=942611&resolution={resolution}&from={start_timestamp}&to={end_timestamp}"
+                
+                # Navigate to URL and get content
+                page.goto(url)
+                content = page.content()
+                
+                # Extract JSON data from the page
+                import re
+                json_match = re.search(r'({.*})', content)
+                if json_match:
+                    data = json.loads(json_match.group(1))
+                else:
+                    # Try to get the pre-formatted JSON response
+                    data_text = page.inner_text('pre') or page.inner_text('body')
+                    data = json.loads(data_text)
+                
+                # Close browser
+                browser.close()
+            
+            if not data or 't' not in data or len(data['t']) == 0:
+                logging.warning("No US Dollar Index data returned from API")
+                return None
+                
+            # Create DataFrame from the response
+            # The JSON format is {"t":[timestamps], "c":[closing_prices], ...}
+            df = pd.DataFrame({
+                'timestamp': pd.to_datetime(data['t'], unit='s'),
+                'close': data['c'],
+            })
+            
+            # Set timestamp as index
+            df = df.set_index('timestamp')
+            
+            # Add DXY indicator column
+            df['us_dollar_index'] = df['close']
+            
+            # Resample to the specified timeframe
+            df = self.resample_data(df, timeframe)
+            df.ffill().bfill()
+            
+            
+            logging.info(f"Successfully fetched US Dollar Index data with {len(df)} records")
+            return df[['us_dollar_index']]
+        except Exception as e:
+            logging.error(f"Error fetching US Dollar Index data: {e}")
+            return None
     def fetch_employment_data(self, start_date: str, timeframe: str) -> Optional[pd.DataFrame]:
         """
         Fetch employment data from FRED including Non-Farm Payrolls and Unemployment Rate
@@ -336,9 +432,43 @@ class MacroFeatureExtractor:
             result = self.expand_fomc_dates(result)
 
             result['timestamp'] = pd.to_datetime(result['timestamp'])
+            # Check for duplicate timestamps before setting index
+            if result['timestamp'].duplicated().any():
+                # Drop duplicates or keep the first occurrence
+                result = result.drop_duplicates(subset=['timestamp'], keep='first')
+                logging.warning("Dropped duplicate FOMC meeting dates")
+            
+            # Now set the index safely
             result.set_index('timestamp', inplace=True)
             result = self.resample_data(result, timeframe)
+            # Add zeros for dates from start_date to the first meeting date
+            if not result.empty:
+                # Convert start_date to timestamp
+                start_timestamp = pd.Timestamp(start_date)
+                
+                # Get the first meeting date in the result
+                first_meeting_date = result.index.min()
+                
+                # Only add zeros if the first meeting date is after the start date
+                if first_meeting_date > start_timestamp:
+                    # Create a date range from start_date to the day before first meeting
+                    date_range = pd.date_range(start=start_timestamp, end=first_meeting_date - pd.Timedelta(days=1))
+                    
+                    # Create a DataFrame with zeros for all columns in the date range
+                    zeros_df = pd.DataFrame(0, index=date_range, columns=result.columns)
+                    
+                    # Concatenate with the original result
+                    result = pd.concat([zeros_df, result])
+                    
+                    logging.info(f"Added {len(date_range)} days with zero values before first FOMC meeting")
 
+            # Ensure the index is named 'timestamp'
+            result.index.name = 'timestamp'
+            
+            # Sort the index to ensure chronological order
+            result.sort_index(inplace=True)
+            
+            logging.info(f"Processed FOMC meeting data with {len(result)} records")
             return result
             
         except Exception as e:
@@ -533,6 +663,7 @@ class MacroFeatureExtractor:
                 # Fetch interest rate data
 
                 # Fetch all macro features
+                us_dollar_index = self.get_us_dollar_index(start_date_str, timeframe=timeframe)
                 inflation_rate = self.get_inflation_rate(start_date_str, timeframe)
                 interest_rates = self.get_interest_rates(start_date_str, timeframe)
                 crypto_market_cap = self.get_global_crypto_market_cap(start_date_str, timeframe)
@@ -545,7 +676,7 @@ class MacroFeatureExtractor:
                 df = interest_rates
                 
                 # Merge all dataframes
-                dataframes = [inflation_rate, employment_data, gdp_growth, meetings, crypto_market_cap, bitcoin_dominance]
+                dataframes = [us_dollar_index, inflation_rate, employment_data, gdp_growth, meetings, crypto_market_cap, bitcoin_dominance]
                 for data in dataframes:
                     if data is not None:
                         df = pd.merge(df, data, left_index=True, right_index=True, how='left')

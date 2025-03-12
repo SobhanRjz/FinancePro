@@ -1,0 +1,92 @@
+---
+description: 
+globs: 
+---
+# CryptoAI Project Rules
+
+## 1. General Guidelines
+- The project aims to **collect, preprocess, and analyze cryptocurrency data** to train AI models for predictive analytics.
+- All code must be **modular**, **scalable**, and **well-documented**.
+- The system should be **fault-tolerant** and capable of handling missing or incomplete data.
+- Ensure compliance with **data privacy** and **legal regulations** when collecting data.
+
+---
+
+## 2. Data Collection Rules
+- Use **official APIs** (Binance, CoinGecko, etc.) for fetching cryptocurrency data.
+- Data should be fetched **at regular intervals** (configurable: e.g., every minute, hour, or day).
+- All collected data must be **timestamped** and stored in a structured format (e.g., pkl.gz).
+- Implement **rate limiting and error handling** to prevent API bans.
+- Avoid **duplicate entries** by checking timestamps before inserting new data.
+
+---
+
+## 3. Data Processing Rules
+- Normalize raw data before storage (e.g., converting price formats, removing outliers).
+- Implement **data validation** to check for missing or corrupted values.
+- Store historical price trends and calculate **technical indicators** (e.g., **RSI, MACD, Bollinger Bands**).
+- Ensure data pipelines are **asynchronous** for efficiency.
+- Use **logging** to track data processing errors.
+
+---
+
+## 4. AI Model Training Rules
+- Use a **class-based architecture** for AI models (e.g., `CryptoModelTrainer`).
+- Training data must be **preprocessed** before use (e.g., feature scaling, removing NaN values).
+- Implement **train-validation-test splits** to avoid overfitting.
+- Use **transfer learning** where possible to optimize model performance.
+- Track **model performance** with key metrics (e.g., RMSE, accuracy, F1-score).
+
+---
+
+## 5. Coding Standards
+### **5.1 General Coding Rules**
+- All code must follow **PEP 8** (Python) or **Go style guide** (Go).
+- Use **object-oriented programming (OOP)** and keep classes **small and focused**.
+- All functions and classes must have **docstrings** explaining their purpose.
+- Use **type hints** for better readability (`def fetch_data(api: str) -> pd.DataFrame`).
+- Implement **unit tests** for critical functions.
+
+### **5.2 Expert-Driven Class Architecture**
+- Implement a **modular structure** with classes:
+  - **`CryptoDataFetcher`** → Handles API calls and data retrieval.
+  - **`CryptoPreprocessor`** → Cleans, normalizes, and structures data.
+  - **`CryptoFeatureExtractor`** → Extracts technical indicators and relevant features.
+  - **`CryptoAIModel`** → Trains and evaluates machine learning models.
+- Each class should have **clear responsibilities** and avoid unnecessary dependencies.
+
+---
+
+## 6. Security and Best Practices
+- Store API keys **securely** (use `.env` files, never hard-code).
+- Avoid exposing sensitive data in logs.
+- Implement **exception handling** for API failures and connection issues.
+- Regularly update **dependencies** and patch vulnerabilities.
+
+---
+
+## 7. Collaboration and Version Control
+- Use **GitHub/GitLab** for version control.
+- Follow **branching strategy** (`main`, `dev`, `feature-*` branches).
+- Code changes must go through **pull requests (PRs)** with **peer reviews**.
+- Use **CI/CD pipelines** to automate testing and deployments.
+
+---
+
+## 8. Deployment Guidelines
+- Ensure **scalability** by containerizing with **Docker**.
+- Deploy in a **cloud environment** (e.g., AWS, GCP) or **Kubernetes**.
+- Monitor system performance with **logging and alerts**.
+
+---
+
+## 9. Logging and Monitoring
+- Use **structured logging** (`loguru`, `logging` in Python).
+- Store logs in a centralized **database or cloud monitoring tool**.
+- Set up **alerts** for failures or unexpected anomalies.
+
+---
+
+### **Final Notes**
+- These rules ensure **data reliability, AI model efficiency, and scalable architecture**.
+- Any updates to the rules must be **reviewed and approved** by the team before implementation.

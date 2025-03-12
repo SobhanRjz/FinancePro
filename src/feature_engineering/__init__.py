@@ -8,11 +8,28 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
 # Import all feature extractors
-from feature_engineering.core_features import CoreFeatureExtractor
-from feature_engineering.order_book_features import OrderBookFeatureExtractor
-from feature_engineering.technical_indicators import TechnicalIndicatorExtractor
-from feature_engineering.sentiment_features import SentimentFeatureExtractor
-from feature_engineering.time_features import TimeFeatureExtractor
+module = __import__("feature_engineering.1_core_features", fromlist=["CoreFeatureExtractor"])
+CoreFeatureExtractor = getattr(module, "CoreFeatureExtractor")
+
+module = __import__("feature_engineering.2_technical_indicators", fromlist=["TechnicalIndicatorExtractor"])
+TechnicalIndicatorExtractor = getattr(module, "TechnicalIndicatorExtractor")
+
+module = __import__("feature_engineering.3_statistical_features", fromlist=["StatisticalFeatureExtractor"])
+StatisticalFeatureExtractor = getattr(module, "StatisticalFeatureExtractor")
+
+module = __import__("feature_engineering.4_time_features", fromlist=["TimeFeatureExtractor"])
+TimeFeatureExtractor = getattr(module, "TimeFeatureExtractor")
+
+module = __import__("feature_engineering.7_derived_features", fromlist=["DerivedFeatureExtractor"])
+DerivedFeatureExtractor = getattr(module, "DerivedFeatureExtractor")
+
+module = __import__("feature_engineering.9_on_chain_features", fromlist=["OnChainFeatureExtractor"])
+OnChainFeatureExtractor = getattr(module, "OnChainFeatureExtractor")
+
+module = __import__("feature_engineering.10_risk_features", fromlist=["RiskFeatureExtractor"])
+RiskFeatureExtractor = getattr(module, "RiskFeatureExtractor")
+
+
 
 # Configure logging
 logging.basicConfig(
@@ -142,14 +159,15 @@ if __name__ == "__main__":
     logger.info("Merging features from different directories...")
     
     # Define directories to search for feature files
-    feature_dirs = [
-        'OHLCV',
-        'process_order_book_features',
-        'process_sentiment_features', 
-        'process_statistical_features',
-        'process_technical_indicators',
-        'process_time_features'
-    ]
+    # Sort directories but ensure OHLCV comes first
+    feature_dirs = sorted([d for d in os.listdir(args.data_dir) if os.path.isdir(os.path.join(args.data_dir, d))])
+    if 'OHLCV' in feature_dirs:
+        feature_dirs.remove('OHLCV')
+        feature_dirs.insert(0, 'OHLCV')
+    # Remove merged_features directory if it exists
+    if 'merged_features' in feature_dirs:
+        feature_dirs.remove('merged_features')
+        logger.info("Removed merged_features directory from processing list")
     
     # Dictionary to store dataframes by symbol/timeframe pattern
     grouped_files = {}
@@ -238,14 +256,9 @@ if __name__ == "__main__":
 
                     if 'Sentiment_Features' not in file_path:
                         # Merge with existing dataframe
-                        # Merge dataframes where timestamps match
-                        # Skip columns that already exist in merged_df
                         new_cols = [col for col in df.columns if col not in merged_df.columns]
-                        df[new_cols].drop('timestamp', axis=1, errors='ignore')
                         if new_cols:
-                            # Only merge new columns from df
-                            merged_df = pd.merge(merged_df, df[new_cols], left_index=True, right_index=True, how='outer')
-
+                            merged_df = merged_df.join(df[new_cols], how='outer')
                         logger.info(f"Merged {len(df.columns)} columns from {feature_dir}")
                 
             except Exception as e:

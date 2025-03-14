@@ -25,8 +25,15 @@ class DerivedFeatureExtractor:
             data_dir (str): Directory containing OHLCV data files
         """
         self.data_dir = data_dir
+        self.timeframe_map = {
+            '1d': 'D',
+            '4h': '4h', 
+            '1h': 'h',
+            '5m': '5min'
+        }
     
-    def resample_data(self, df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+    
+    def resample_data(self, df: pd.DataFrame, timeframe: str, start_time: str) -> pd.DataFrame:
         """
         Resample data to the specified timeframe
         
@@ -37,22 +44,26 @@ class DerivedFeatureExtractor:
         Returns:
             pd.DataFrame: Resampled DataFrame
         """
-        # Handle different timeframes for resampling
-        if timeframe.lower() == '1d':
-            resampled_df = df.resample('D').ffill()
-        elif timeframe.lower() == '4h':
-            resampled_df = df.resample('4h').ffill()
-        elif timeframe.lower() == '1h':
-            resampled_df = df.resample('h').ffill()
-        elif timeframe.lower() == '5m':
-            resampled_df = df.resample('5min').ffill()
-        else:
-            # Resample to daily frequency and forward fill for other timeframes
-            resampled_df = df.resample('D').ffill()
+        # Get resample frequency from map, default to daily
+        freq = self.timeframe_map.get(timeframe.lower(), 'D')
+        df = df.bfill().ffill()
+        # For other data, use forward fill
+        resampled_df = df.resample(freq, origin=df.index[0]).asfreq()
+        resampled_df = resampled_df.ffill().bfill()
             
+        # Find the closest timestamp to start_time
+        start_timestamp = pd.to_datetime(start_time)
+        resampled_df = resampled_df[resampled_df.index >= (start_timestamp - pd.Timedelta(minutes=resampled_df.index.freq.n))]
+        
+        # Adjust index to align with start_time
+        if len(resampled_df) > 0:
+            time_diff = resampled_df.index[0] - start_timestamp
+            resampled_df.index = resampled_df.index - pd.Timedelta(minutes=time_diff.total_seconds()/60)
+
+
         return resampled_df
     
-    def calculate_momentum_score(self, df : pd.DataFrame, timeframe : str):
+    def calculate_momentum_score(self, df : pd.DataFrame, timeframe : str,  start_time:str):
         """
         Calculate momentum score based on RSI, ROC, and EMA indicators
         
@@ -78,6 +89,9 @@ class DerivedFeatureExtractor:
 
         # Combine into momentum score (simple average)
         dfTemp['momentum_score'] = dfTemp[['rsi_score', 'roc_score', 'ema_slope_score']].mean(axis=1)
+                # Fill initial NaN/0 values with first non-zero value
+        first_valid = dfTemp['momentum_score'][dfTemp['momentum_score'] > 0].iloc[0]
+        dfTemp['momentum_score'] = dfTemp['momentum_score'].replace(0, first_valid)
 
         # Ensure we have a DatetimeIndex before resampling
         dfTemp = dfTemp.copy()
@@ -91,14 +105,14 @@ class DerivedFeatureExtractor:
                 dfTemp.index = pd.to_datetime(dfTemp.index)
         
         # Now resample with proper DatetimeIndex
-        dfTemp = self.resample_data(dfTemp, timeframe)
+        dfTemp = self.resample_data(dfTemp, timeframe, start_time)
         dfTemp = dfTemp.ffill().bfill()
         
         dfTemp = dfTemp[['momentum_score']]
 
         return dfTemp
     
-    def calculate_mean_reversion_signal(self, df: pd.DataFrame, timeframe: str):
+    def calculate_mean_reversion_signal(self, df: pd.DataFrame, timeframe: str,  start_time:str):
         """
         Calculate mean reversion signals based on Bollinger Bands and Z-Score
         
@@ -143,12 +157,12 @@ class DerivedFeatureExtractor:
                 dfTemp.index = pd.to_datetime(dfTemp.index)
         
         # Now resample with proper DatetimeIndex
-        dfTemp = self.resample_data(dfTemp, timeframe)
+        dfTemp = self.resample_data(dfTemp, timeframe,  start_time)
         dfTemp = dfTemp.ffill().bfill()
         
         return dfTemp[['bb_upper', 'bb_lower', 'z_score', 'mean_reversion_signal']]
         
-    def calculate_trend_strength(self, df: pd.DataFrame, timeframe: str):
+    def calculate_trend_strength(self, df: pd.DataFrame, timeframe: str,  start_time:str):
         """
         Calculate trend strength based on ADX, EMA slope, and ROC indicators
         
@@ -164,6 +178,9 @@ class DerivedFeatureExtractor:
         # ADX - Average Directional Index
         adx_indicator = ta.trend.ADXIndicator(high=df['high'], low=df['low'], close=df['close'], window=14)
         dfTemp['adx'] = adx_indicator.adx()
+        # Fill initial NaN/0 values with first non-zero value
+        first_valid = dfTemp['adx'][dfTemp['adx'] > 0].iloc[0]
+        dfTemp['adx'] = dfTemp['adx'].replace(0, first_valid)
 
         # EMA and its slope (trend slope)
         dfTemp['ema'] = ta.trend.EMAIndicator(df['close'], window=14).ema_indicator()
@@ -196,7 +213,7 @@ class DerivedFeatureExtractor:
                 dfTemp.index = pd.to_datetime(dfTemp.index)
         
         # Now resample with proper DatetimeIndex
-        dfTemp = self.resample_data(dfTemp, timeframe)
+        dfTemp = self.resample_data(dfTemp, timeframe,  start_time)
         dfTemp = dfTemp.ffill().bfill()
 
         # Extract only the trend_strength column
@@ -204,7 +221,7 @@ class DerivedFeatureExtractor:
 
         return dfTemp
     
-    def calculate_trend_continuation_probability(self, df: pd.DataFrame, timeframe: str):
+    def calculate_trend_continuation_probability(self, df: pd.DataFrame, timeframe: str,  start_time:str):
         """
         Calculate trend continuation probability based on ADX, EMA slope, MACD histogram, and price-EMA relationship
         
@@ -260,12 +277,12 @@ class DerivedFeatureExtractor:
                 dfTemp.index = pd.to_datetime(dfTemp.index)
         
         # Now resample with proper DatetimeIndex
-        dfTemp = self.resample_data(dfTemp, timeframe)
+        dfTemp = self.resample_data(dfTemp, timeframe, start_time)
         dfTemp = dfTemp.ffill().bfill()
 
         return dfTemp[['ema_slope', 'macd_histogram', 'above_ema', 'trend_continuation_probability']]
     
-    def calculate_volatility_cluster_indicator(self, df: pd.DataFrame, timeframe: str, window=20):
+    def calculate_volatility_cluster_indicator(self, df: pd.DataFrame, timeframe: str, start_time:str, window=20):
         """
         Calculate volatility clustering indicators based on standard deviation, ATR, and Bollinger Band width
         
@@ -317,12 +334,12 @@ class DerivedFeatureExtractor:
                 dfTemp.index = pd.to_datetime(dfTemp.index)
         
         # Now resample with proper DatetimeIndex
-        dfTemp = self.resample_data(dfTemp, timeframe)
+        dfTemp = self.resample_data(dfTemp, timeframe,  start_time)
         dfTemp = dfTemp.ffill().bfill()
 
         return dfTemp[['bb_width', 'volatility_cluster_indicator']]
     
-    def classify_market_regime(self, df: pd.DataFrame, timeframe: str):
+    def classify_market_regime(self, df: pd.DataFrame, timeframe: str, start_time:str):
         """
         Classify market regime as Bull, Bear, or Sideways based on technical indicators
         
@@ -376,10 +393,10 @@ class DerivedFeatureExtractor:
                 dfTemp.index = pd.to_datetime(dfTemp.index)
         
         # Now resample with proper DatetimeIndex
-        dfTemp = self.resample_data(dfTemp, timeframe)
+        dfTemp = self.resample_data(dfTemp, timeframe, start_time)
         dfTemp = dfTemp.ffill().bfill()
         
-        return dfTemp[['atr', 'market_regime']]
+        return dfTemp[['market_regime']]
     
     def process_all_files(self):
         """Process all OHLCV files and extract derived features"""
@@ -425,20 +442,21 @@ class DerivedFeatureExtractor:
 
                     #df.index.name = 'timestamp'
                     df = df.reset_index().set_index('timestamp')
-
+                    start_date_str = df.index.min()
+                    end_data_str = df.index.max()
                     # Calculate momentum score
-                    market_regime_df = self.classify_market_regime(df, timeframe)
-                    volatility_cluster_df = self.calculate_volatility_cluster_indicator(df, timeframe)
-                    trend_continuation_df = self.calculate_trend_continuation_probability(df, timeframe)
-                    mean_reversion_df = self.calculate_mean_reversion_signal(df, timeframe)
-                    trend_strength_df = self.calculate_trend_strength(df, timeframe)
-                    momentum_df = self.calculate_momentum_score(df, timeframe)
+                    market_regime_df = self.classify_market_regime(df, timeframe, start_date_str)
+                    volatility_cluster_df = self.calculate_volatility_cluster_indicator(df, timeframe, start_date_str)
+                    trend_continuation_df = self.calculate_trend_continuation_probability(df, timeframe, start_date_str)
+                    mean_reversion_df = self.calculate_mean_reversion_signal(df, timeframe, start_date_str)
+                    trend_strength_df = self.calculate_trend_strength(df, timeframe, start_date_str)
+                    momentum_df = self.calculate_momentum_score(df, timeframe, start_date_str)
                     
                     # Merge all derived features
                     derived_features_df = pd.concat([market_regime_df, volatility_cluster_df, trend_continuation_df, mean_reversion_df, trend_strength_df, momentum_df], axis=1)
                     
                     # Create output directory
-                    output_dir = os.path.join(self.data_dir.split('/')[0], 'process_derived_features')
+                    output_dir = os.path.join(self.data_dir.split('/')[0], '7_process_derived_features')
                     os.makedirs(output_dir, exist_ok=True)
                     
                     # Create output filename with same pattern

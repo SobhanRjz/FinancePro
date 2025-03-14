@@ -23,12 +23,12 @@ class RiskFeatureExtractor:
             data_dir (str): Directory where data files are stored
         """
         self.data_dir = data_dir
-        #self.quant_headers = self.GetquantHeaders()
+        self.quant_headers = self.GetquantHeaders()
         self.quant_headers = {
             "accept": "application/json, text/plain, */*",
             "accept-encoding": "gzip, deflate, br, zstd",
             "accept-language": "en-US,en;q=0.9",
-            "authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI2Njk4MDkiLCJpc3MiOiJDcnlwdG9RdWFudCIsImlhdCI6MTc0MTU1Nzk1NSwiZXhwIjoxNzQxNTYxNTU1fQ.aWVn5wSm2KRXD8j40pMeJrCeAywNEiu3Ey5lzDDebzQ",
+            "authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI2Njk4MDkiLCJpc3MiOiJDcnlwdG9RdWFudCIsImlhdCI6MTc0MTk4OTkwOSwiZXhwIjoxNzQxOTkzNTA5fQ.-CUTovmbegw9oXqDgw3bueQqLPUPrTBhHH2yc4a_B3s",
             "cache-control": "no-cache",
             "origin": "https://cryptoquant.com",
             "pragma": "no-cache",
@@ -42,6 +42,14 @@ class RiskFeatureExtractor:
             "sec-fetch-site": "same-site",
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0"
         }
+        self.timeframe_map = {
+            '1d': 'D',
+            '4h': '4h', 
+            '1h': 'h',
+            '5m': '5min',
+            '10m': '5min'
+        }
+    
         # Create directory if it doesn't exist
         os.makedirs(data_dir, exist_ok=True)
 
@@ -51,7 +59,9 @@ class RiskFeatureExtractor:
         """
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=False)  # Run in the background
-            context = browser.new_context()
+            context = browser.new_context(viewport={"width": 1920, "height": 1080},
+                                          locale='en-US',
+                                        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0')
             page = context.new_page()
             
             # Apply stealth mode to avoid detection
@@ -67,7 +77,7 @@ class RiskFeatureExtractor:
             page.on("request", capture_headers)
             
             # Open the website
-            page.goto("https://cryptoquant.com/asset/btc/chart/derivatives/long-liquidations", wait_until="networkidle")
+            page.goto("https://cryptoquant.com/asset/btc/chart/derivatives/long-liquidations?exchange=all_exchange&symbol=all_symbol&window=DAY&sma=0&ema=0&priceScale=log&metricScale=linear&chartStyle=column", wait_until="domcontentloaded")
             
             # Wait for API requests to complete
             page.wait_for_timeout(5000)
@@ -76,7 +86,8 @@ class RiskFeatureExtractor:
             
         return headers
     
-    def resample_data(self, df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+
+    def resample_data(self, df: pd.DataFrame, timeframe: str, start_time: str) -> pd.DataFrame:
         """
         Resample data to the specified timeframe
         
@@ -87,22 +98,28 @@ class RiskFeatureExtractor:
         Returns:
             pd.DataFrame: Resampled DataFrame
         """
-        # Handle different timeframes for resampling
-        if timeframe.lower() == '1d':
-            resampled_df = df.resample('D').ffill()
-        elif timeframe.lower() == '4h':
-            resampled_df = df.resample('4h').ffill()
-        elif timeframe.lower() == '1h':
-            resampled_df = df.resample('h').ffill()
-        elif timeframe.lower() == '5m':
-            resampled_df = df.resample('5min').ffill()
-        else:
-            # Resample to daily frequency and forward fill for other timeframes
-            resampled_df = df.resample('D').ffill()
+        # Get resample frequency from map, default to daily
+        freq = self.timeframe_map.get(timeframe.lower(), 'D')
+        df = df.bfill().ffill()
+        # For other data, use forward fill
+        resampled_df = df.resample(freq, origin=df.index[0]).asfreq()
+        resampled_df = resampled_df.ffill().bfill()
             
-        return resampled_df
+        # Find the closest timestamp to start_time
+        start_timestamp = pd.to_datetime(start_time)
+        resampled_df = resampled_df[resampled_df.index >= (start_timestamp - pd.Timedelta(minutes=resampled_df.index.freq.n))]
+        
+        # Adjust index to align with start_time
+        if len(resampled_df) > 0:
+            time_diff = resampled_df.index[0] - start_timestamp
+            if time_diff.total_seconds() >= 0:
+                resampled_df.index = resampled_df.index - pd.Timedelta(minutes=time_diff.total_seconds()/60)
 
-    def fetch_leverage_ratio_data(self, from_time: str, period: str):
+
+        return resampled_df
+    
+
+    def fetch_leverage_ratio_data(self, timeframe:str, start_time: str, end_time: str):
         """
         Fetch estimated leverage ratio data from CryptoQuant API.
         
@@ -120,8 +137,8 @@ class RiskFeatureExtractor:
             # Parameters
             params = {
                 "window": "DAY",
-                "from": str(int(pd.Timestamp(from_time).timestamp() * 1000)),  # Convert from_time to milliseconds
-                "to": str(int(time.time() * 1000)),  # Current time in milliseconds
+                "from": str(int(pd.Timestamp(start_time).timestamp() * 1000)),  # Convert from_time to milliseconds
+                "to": str(int(pd.Timestamp(end_time).timestamp() * 1000)),  # Current time in milliseconds
                 "limit": "70000"
             }
             proxy = {
@@ -146,11 +163,36 @@ class RiskFeatureExtractor:
                         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                         df.set_index('timestamp', inplace=True)
                         
-                    if period != '10y' and period != '5y':
-                        df = self.resample_data(df, period)
-                        return df.ffill().bfill()
-                    else:
-                        return pd.DataFrame()
+                    
+                        df = self.resample_data(df, timeframe, start_time)
+                        # Check if data is available up to the end time
+                        current_date = pd.Timestamp(end_time)
+                        last_date = df.index.max()
+
+                        if last_date < current_date:
+                            logging.info(f"Missing US Dollar Index data from {last_date.date()} to {current_date.date()}. Forward filling last values.")
+
+                            # Generate future dates based on timeframe
+                            freq = self.timeframe_map.get(timeframe.lower(), 'D')
+                            future_dates = pd.date_range(start=last_date , end=current_date, freq=freq)
+                            # Remove first date since it would duplicate the last existing date
+                            future_dates = future_dates[1:]
+                            # Get last value
+                            last_value = df['leverage_ratio'].iloc[-1]
+
+                            # Create DataFrame with last value repeated
+                            future_df = pd.DataFrame({
+                                'leverage_ratio': [last_value] * len(future_dates)
+                            }, index=future_dates)
+
+                            # Append forward filled data
+                            df = pd.concat([df, future_df])
+
+                        # Final forward and backward fill for any remaining gaps
+                        df = df.ffill().bfill()
+                        df.index.name = 'timestamp'
+                        return df
+                
                     
                 else:
                     logging.error("Unexpected API response structure")
@@ -162,7 +204,7 @@ class RiskFeatureExtractor:
             logging.error(f"Error fetching leverage ratio data: {e}")
             return None
 
-    def fetch_liquidation_data(self, from_time: str, period: str):
+    def fetch_liquidation_data(self, timeframe: str , start_time: str, end_time: str):
         """
         Fetch long liquidation data from CryptoQuant API.
         
@@ -179,9 +221,9 @@ class RiskFeatureExtractor:
      
             # Parameters
             params = {
-                "window": "DAY",
-                "from": str(int(pd.Timestamp(from_time).timestamp() * 1000)),  # Convert from_time to milliseconds
-                "to": str(int(time.time() * 1000)),  # Current time in milliseconds
+                "window": "DAY", # you can not get with h or m
+                "from": str(int(pd.Timestamp(start_time).timestamp() * 1000)),  # Convert from_time to milliseconds
+                "to": str(int(pd.Timestamp(end_time).timestamp() * 1000)),  # Convert end_time to milliseconds
                 "limit": "70000"
             }
             proxy = {
@@ -204,11 +246,36 @@ class RiskFeatureExtractor:
                         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                         df.set_index('timestamp', inplace=True)
                         
-                    if period != '10y' and period != '5y':
-                        df = self.resample_data(df, period)
-                        return df.ffill().bfill()
-                    else:
-                        return pd.DataFrame()
+                    
+                        df = self.resample_data(df, timeframe, start_time)
+                        # Check if data is available up to the end time
+                        current_date = pd.Timestamp(end_time)
+                        last_date = df.index.max()
+
+                        if last_date < current_date:
+                            logging.info(f"Missing US Dollar Index data from {last_date.date()} to {current_date.date()}. Forward filling last values.")
+
+                            # Generate future dates based on timeframe
+                            freq = self.timeframe_map.get(timeframe.lower(), 'D')
+                            future_dates = pd.date_range(start=last_date , end=current_date, freq=freq)
+                            # Remove first date since it would duplicate the last existing date
+                            future_dates = future_dates[1:]
+                            # Get last value
+                            last_value = df['long_liquidation'].iloc[-1]
+
+                            # Create DataFrame with last value repeated
+                            future_df = pd.DataFrame({
+                                'long_liquidation': [last_value] * len(future_dates)
+                            }, index=future_dates)
+
+                            # Append forward filled data
+                            df = pd.concat([df, future_df])
+
+                        # Final forward and backward fill for any remaining gaps
+                        df = df.ffill().bfill()
+                        df.index.name = 'timestamp'
+                        return df
+
                     
                 else:
                     logging.error("Unexpected API response structure")
@@ -268,37 +335,51 @@ class RiskFeatureExtractor:
                 # Get period value and unit (e.g. '10y' = 10 years)
                 period_value = int(period[:-1])
                 period_unit = period[-1].lower()
+
+                df = pd.read_pickle(file_path)
+                start_time = df.index.min()
+                end_time = df.index.max()
                 
-                # Calculate days based on period
-                days = 0
-                if period_unit == 'd':
-                    days = period_value
-                elif period_unit == 'w':
-                    days = period_value * 7
-                elif period_unit == 'm':
-                    days = period_value * 30
-                elif period_unit == 'y':
-                    days = period_value * 365
-                
-                start_date = pd.Timestamp.now() - pd.Timedelta(days=days)
-                start_date_str = start_date.strftime('%Y-%m-%d')
             
             df = self.load_risk_data(file_path)
             
             # Fetch leverage ratio data
-            liquidation_data = self.fetch_liquidation_data(start_date_str, period=period)
-            leverage_ratio = self.fetch_leverage_ratio_data(start_date_str, period=period)
+            if period != "5y" and period != '10y':
+                liquidation_data = self.fetch_liquidation_data(timeframe, start_time, end_time)
+                leverage_ratio = self.fetch_leverage_ratio_data(timeframe, start_time, end_time)
 
 
+                dataframes = [df for df in [leverage_ratio, liquidation_data] if df is not None]
 
-            if df is not None:
-                dfs.append(df)
-        
-        if dfs:
-            combined_df = pd.concat(dfs, axis=1)
-            return combined_df
-        else:
-            return None
+                # Merge all dataframes if we have any
+                if dataframes:
+                    merged_data = dataframes[0]
+                    for df in dataframes[1:]:
+                        merged_data = pd.merge(merged_data, df,
+                                             left_index=True, 
+                                             right_index=True,
+                                             how='outer')
+                else:
+                    merged_data = pd.DataFrame()
+                    
+
+                merged_data = merged_data.ffill().bfill()
+                # Create output directory
+                output_dir = os.path.join(self.data_dir.split('/')[0], '10_process_risk_feature')
+                os.makedirs(output_dir, exist_ok=True)
+
+                # Create output filename with same pattern
+                output_file = os.path.join(output_dir, f'risk_feature_{symbol}_{timeframe}_{period}.pkl.gz')
+                
+                try:
+                    merged_data.to_pickle(output_file)
+                    logging.info(f"Saved on-chain features to: {output_file}")
+                except Exception as e:
+                    logging.error(f"Error saving on-chain features: {e}")
+
+
+                if df is not None:
+                    dfs.append(df)
 
 if __name__ == "__main__":
     # Configure logging

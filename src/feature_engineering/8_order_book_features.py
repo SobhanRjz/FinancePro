@@ -25,6 +25,7 @@ class OrderBookFeatureExtractor:
             data_dir (str): Directory where data files are stored
         """
         self.data_dir = data_dir
+        self.output = 'data'
         
     def load_order_book_data(self, file_path):
         """
@@ -129,7 +130,7 @@ class OrderBookFeatureExtractor:
             spread_features = self.calculate_bid_ask_spread(datacopy)
             data["rolling_spread_30"] = spread_features["rolling_spread_30"]
             data["expanding_spread"] = spread_features["expanding_spread"]
-            data["timestamp"] = datacopy["timestamp"]
+            data["timestamp"] = datacopy.index
             data = data.set_index("timestamp")
             
             data = data.ffill().bfill()
@@ -140,11 +141,11 @@ class OrderBookFeatureExtractor:
             # Add file identifier
             file_name = os.path.basename(file_path)
             # Create output directory if it doesn't exist
-            output_dir = os.path.join(self.data_dir, 'process_order_book_features')
+            output_dir = os.path.join(self.output, '8_process_order_book_features')
             os.makedirs(output_dir, exist_ok=True)
             
             # Create output file path with same name but in the new directory
-            output_file = os.path.join(self.data_dir.split('/')[0], 'process_order_book_features', 'order_book_features_' + '_'.join(file_name.split('_')[-3:]))
+            output_file = os.path.join(self.output, '8_process_order_book_features', 'order_book_features_' + '_'.join(file_name.split('_')[-3:]))
             
             # Save the processed data
             try:

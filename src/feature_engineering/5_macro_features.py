@@ -957,7 +957,7 @@ class MacroFeatureExtractor:
                 output_file = os.path.join(output_dir, f'macro_features_{symbol}_{timeframe}_{period}.pkl.gz')
 
                 try:
-                    interest_rates.to_pickle(output_file)
+                    df.to_pickle(output_file)
                     logging.info(f"Saved macro features to: {output_file}")
                 except Exception as e:
                     logging.error(f"Error saving macro features: {e}")

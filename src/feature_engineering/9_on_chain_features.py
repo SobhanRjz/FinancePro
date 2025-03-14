@@ -49,12 +49,52 @@ class OnChainFeatureExtractor:
             "upgrade-insecure-requests": "1",
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0"
         }
+        self.timeframe_map = {
+            '1d': 'D',
+            '4h': '4h', 
+            '1h': 'h',
+            '5m': '5min',
+            '10m': '5min'
+        }
+    
+
 
         # Whale threshold - adjust as needed
         self.BTC_THRESHOLD = 500  # Transactions moving >= 500 BTC
         self.USD_THRESHOLD = 1_000_000  # Transactions worth >= $1 million USD
 
-    def fetch_long_term_holder_supply(self, start_date: str) -> Optional[pd.DataFrame]:
+    def resample_data(self, df: pd.DataFrame, timeframe: str, start_time: str) -> pd.DataFrame:
+        """
+        Resample data to the specified timeframe
+        
+        Args:
+            df (pd.DataFrame): DataFrame to resample
+            timeframe (str): Timeframe to resample to (e.g., '1d', '4h', '1h', '5m')
+            
+        Returns:
+            pd.DataFrame: Resampled DataFrame
+        """
+        # Get resample frequency from map, default to daily
+        freq = self.timeframe_map.get(timeframe.lower(), 'D')
+        df = df.bfill().ffill()
+        # For other data, use forward fill
+        resampled_df = df.resample(freq, origin=df.index[0]).asfreq()
+        resampled_df = resampled_df.ffill().bfill()
+            
+        # Find the closest timestamp to start_time
+        start_timestamp = pd.to_datetime(start_time)
+        resampled_df = resampled_df[resampled_df.index >= (start_timestamp - pd.Timedelta(minutes=resampled_df.index.freq.n))]
+        
+        # Adjust index to align with start_time
+        if len(resampled_df) > 0:
+            time_diff = resampled_df.index[0] - start_timestamp
+            if time_diff.total_seconds() >= 0:
+                resampled_df.index = resampled_df.index - pd.Timedelta(minutes=time_diff.total_seconds()/60)
+
+
+        return resampled_df
+    
+    def fetch_long_term_holder_supply(self, timeframe: str, start_date: str, end_time: str) -> Optional[pd.DataFrame]:
         """
         Fetch Long Term Holder supply data from Bitcoin Magazine Pro
         
@@ -118,8 +158,11 @@ class OnChainFeatureExtractor:
             data = response.json()
             
             # Extract x and y data from response
-            x_data = [x for x in data["response"]["chart"]["figure"]["data"][1]["x"] if pd.Timestamp(x) < pd.Timestamp.now() - pd.Timedelta(days=2)]
-            y_data = data["response"]["chart"]["figure"]["data"][1]["y"]
+            x_data = [x for x in data["response"]["chart"]["figure"]["data"][1]["x"] if pd.Timestamp(x) <= pd.Timestamp(end_time)]
+            # Get corresponding y values for filtered x values to ensure same length
+            y_data = [y for x, y in zip(data["response"]["chart"]["figure"]["data"][1]["x"], 
+                                      data["response"]["chart"]["figure"]["data"][1]["y"]) 
+                     if pd.Timestamp(x) <= pd.Timestamp(end_time)]
             
             # Create DataFrame with long term holder supply data
             df = pd.DataFrame({
@@ -128,8 +171,38 @@ class OnChainFeatureExtractor:
             })
             df = df.set_index('timestamp')
             # Filter by start date if provided
-            if start_date:
-                df = df[df.index >= pd.to_datetime(start_date)]
+            
+            df = df[df.index >= pd.to_datetime(start_date)]
+            df = df[df.index <= pd.to_datetime(end_time)]
+
+            df.index = pd.to_datetime(df.index).tz_localize(None)
+            df = self.resample_data(df, timeframe, start_date)
+            # Check if data is available up to the end time
+            current_date = pd.Timestamp(end_time)
+            last_date = df.index.max()
+
+            if last_date < current_date:
+                logging.info(f"Missing US Dollar Index data from {last_date.date()} to {current_date.date()}. Forward filling last values.")
+
+                # Generate future dates based on timeframe
+                freq = self.timeframe_map.get(timeframe.lower(), 'D')
+                future_dates = pd.date_range(start=last_date , end=current_date, freq=freq)
+                # Remove first date since it would duplicate the last existing date
+                future_dates = future_dates[1:]
+                # Get last value
+                last_value = df['long_term_holder_supply'].iloc[-1]
+
+                # Create DataFrame with last value repeated
+                future_df = pd.DataFrame({
+                    'long_term_holder_supply': [last_value] * len(future_dates)
+                }, index=future_dates)
+
+                # Append forward filled data
+                df = pd.concat([df, future_df])
+
+            # Final forward and backward fill for any remaining gaps
+            df = df.ffill().bfill()
+            df.index.name = 'timestamp'
             logging.info(f"Successfully fetched {len(df)} LTH supply records")
             return df
             
@@ -137,7 +210,7 @@ class OnChainFeatureExtractor:
             logging.error(f"Error fetching LTH supply data: {e}")
             return None
         
-    def fetch_exchange_reserve(self, start_date):
+    def fetch_exchange_reserve(self, timeframe, start_date, end_time):
         """
         Fetch Bitcoin exchange reserve data from CryptoQuant API
         
@@ -178,6 +251,33 @@ class OnChainFeatureExtractor:
             df = pd.DataFrame(data, columns=['timestamp', 'exchange_reserve'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             df = df.set_index('timestamp')
+            df = self.resample_data(df, timeframe, start_date)
+                        # Check if data is available up to the end time
+            current_date = pd.Timestamp(end_time)
+            last_date = df.index.max()
+
+            if last_date < current_date:
+                logging.info(f"Missing US Dollar Index data from {last_date.date()} to {current_date.date()}. Forward filling last values.")
+
+                # Generate future dates based on timeframe
+                freq = self.timeframe_map.get(timeframe.lower(), 'D')
+                future_dates = pd.date_range(start=last_date , end=current_date, freq=freq)
+                # Remove first date since it would duplicate the last existing date
+                future_dates = future_dates[1:]
+                # Get last value
+                last_value = df['exchange_reserve'].iloc[-1]
+
+                # Create DataFrame with last value repeated
+                future_df = pd.DataFrame({
+                    'exchange_reserve': [last_value] * len(future_dates)
+                }, index=future_dates)
+
+                # Append forward filled data
+                df = pd.concat([df, future_df])
+
+            # Final forward and backward fill for any remaining gaps
+            df = df.ffill().bfill()
+            df.index.name = 'timestamp'
             
             logging.info(f"Successfully fetched {len(df)} exchange reserve records")
             return df
@@ -185,13 +285,14 @@ class OnChainFeatureExtractor:
         except Exception as e:
             logging.error(f"Error fetching exchange reserve data: {e}")
             return None
-    def fetch_daily_avg_fees(self, start_date, end_date):
+    def fetch_daily_avg_fees(self, timeframe, start_date, end_date):
         while True:
             try:
+                end_date0 = pd.to_datetime(end_date) + pd.Timedelta(days=2)
                 params = {
                     "a": "date,avg(fee_usd)", 
                     "s": "date(desc)",
-                    "q": f"time({start_date}..{end_date})"
+                    "q": f"time({start_date}..{str(end_date0)})" 
                 }
                 response = requests.get(self.BASE_URL, params=params, headers=self.USER_AGENT, proxies=self.proxy)
                 
@@ -205,6 +306,36 @@ class OnChainFeatureExtractor:
                 df['timestamp'] = pd.to_datetime(df['date'])
                 df = df.drop('date', axis=1)
                 df.set_index('timestamp', inplace=True)
+                df.index = pd.to_datetime(df.index).tz_localize(None)
+                df = df[df.index >= pd.to_datetime(start_date)]
+                df = df[df.index <= pd.to_datetime(end_date)]
+                df = self.resample_data(df, timeframe, start_date)
+                            # Check if data is available up to the end time
+                current_date = pd.Timestamp(end_date)
+                last_date = df.index.max()
+
+                if last_date < current_date:
+                    logging.info(f"Missing US Dollar Index data from {last_date.date()} to {current_date.date()}. Forward filling last values.")
+
+                    # Generate future dates based on timeframe
+                    freq = self.timeframe_map.get(timeframe.lower(), 'D')
+                    future_dates = pd.date_range(start=last_date , end=current_date, freq=freq)
+                    # Remove first date since it would duplicate the last existing date
+                    future_dates = future_dates[1:]
+                    # Get last value
+                    last_value = df['avg(fee_usd)'].iloc[-1]
+
+                    # Create DataFrame with last value repeated
+                    future_df = pd.DataFrame({
+                        'avg(fee_usd)': [last_value] * len(future_dates)
+                    }, index=future_dates)
+
+                    # Append forward filled data
+                    df = pd.concat([df, future_df])
+
+                # Final forward and backward fill for any remaining gaps
+                df = df.ffill().bfill()
+                df.index.name = 'timestamp'
                 return df
             except Exception as e:
                 logging.error(f"Error fetching fee data: {e}")
@@ -218,7 +349,8 @@ class OnChainFeatureExtractor:
         while True:
             try:
                 """Fetch transactions for a given date range."""
-                query = f"time({start_date}..{end_date}),output_total({self.BTC_THRESHOLD * 100000000}..)"
+                end_date = pd.to_datetime(end_date) + pd.Timedelta(days=offset)
+                query = f"time({start_date}..{str(end_date)}),output_total({self.BTC_THRESHOLD * 100000000}..)"
                 params = {
                     "q": query,
                     "a": "date,count(),sum(output_total),sum(output_total_usd)"
@@ -251,7 +383,7 @@ class OnChainFeatureExtractor:
         shouldBreak = total_rows == 0
         return total_rows, date
 
-    def fetch_whales_from_date(self, start_date):
+    def fetch_whales_from_date(self, timeframe, start_date: str, end_time: str):
         """
         Fetch whale transactions from start_date to now.
         
@@ -262,16 +394,11 @@ class OnChainFeatureExtractor:
             pd.DataFrame: DataFrame with whale transaction data indexed by timestamp
         """
         from datetime import datetime, timedelta
-        
-        start = datetime.strptime(start_date, "%Y-%m-%d")
-        today = datetime.utcnow()
 
         all_whale_transactions = []
-
         daily_whale_data = {}
-        current = start
 
-        data = self.fetch_transactions_for_date_range(current.date(), today.date(), 1)
+        data = self.fetch_transactions_for_date_range(start_date, end_time, 1)
         if not data:
             return None 
         
@@ -282,16 +409,17 @@ class OnChainFeatureExtractor:
                 'whale_usd_volume': row["sum(output_total_usd)"]
             }
 
-        current = current + timedelta(days=1)
-
         # Convert the daily data dictionary to DataFrame
         df = pd.DataFrame.from_dict(daily_whale_data, orient='index')
         df.index = pd.to_datetime(df.index)
         df.index.name = 'timestamp'
         df = df.sort_index()  # Sort by date
-
+        df.index = pd.to_datetime(df.index).tz_localize(None)
+        df = self.resample_data(df, timeframe, start_date)
+        df = df[df.index <= pd.to_datetime(end_time)]
+        df = df[df.index >= pd.to_datetime(start_date)]
         return df
-    def get_active_addresses(self, start_date: str = "2016-02-01") -> Optional[pd.DataFrame]:
+    def get_active_addresses(self, timeframe: str, start_date: str = "2016-02-01", end_time: str = "2016-02-01") -> Optional[pd.DataFrame]:
         """
         Fetch daily active addresses data from Santiment API
         
@@ -302,22 +430,28 @@ class OnChainFeatureExtractor:
             Optional[pd.DataFrame]: DataFrame with active addresses data indexed by timestamp,
                                   or None if request fails
         """
+        if timeframe == "5m":
+            timeframe = "10m"
+        # Add one day to end_time to ensure we get complete data
+        end_time0 = (pd.to_datetime(end_time) + pd.Timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
         query = {
             "query": """
             {
                 getMetric(metric: "active_addresses_24h") {
                     timeseriesData(
                         slug: "bitcoin"
-                        from: "%sT00:00:00Z"
-                        to: "utc_now"
-                        interval: "1d"
+                        from: "%s"
+                        to: "%s"
+                        interval: "%s"
                     ) {
                         datetime
                         value
                     }
                 }
             }
-            """ % start_date
+            """ % (start_date.split(" ")[0] + "T" + start_date.split(" ")[1] + "Z",
+                   end_time0.split(" ")[0] + "T" + end_time0.split(" ")[1] + "Z",
+                   timeframe)
         }
 
         try:
@@ -341,7 +475,10 @@ class OnChainFeatureExtractor:
                 'value': 'active_addresses_24h'
             })
             df = df.set_index('timestamp')
-            
+            df.index = pd.to_datetime(df.index).tz_localize(None)
+            df = self.resample_data(df, timeframe, start_date)
+            df = df[df.index <= pd.to_datetime(end_time)]
+            df = df[df.index >= pd.to_datetime(start_date)]
             logging.info(f"Successfully fetched {len(df)} active addresses records")
             return df
             
@@ -370,51 +507,29 @@ class OnChainFeatureExtractor:
                 symbol, timeframe, period = match.groups()
                 logging.info(f"Processing {symbol} data for {timeframe} timeframe over {period}")
                 
-                # Get on-chain data
-                # Get start date from period (e.g. '10y' = 10 years)
-                period_value = int(period[:-1])
-                period_unit = period[-1].lower()
-                
-                # Convert period to days using datetime
-                if period_unit == 'y':
-                    days = period_value * 365
-                elif period_unit == 'm':
-                    days = period_value * 30
-                elif period_unit == 'w':
-                    days = period_value * 7
-                elif period_unit == 'd':
-                    days = period_value
-                else:
-                    raise ValueError(f"Invalid period unit: {period_unit}")
-                start_date = pd.Timestamp.now() - pd.Timedelta(days=days)
-
-                # Format date string once for reuse
-                start_date_str = start_date.strftime('%Y-%m-%d')
-                end_date_str = pd.Timestamp.now().strftime('%Y-%m-%d')
+                # Read the OHLCV file to get actual date range
+                df = pd.read_pickle(file_path)
+                start_date_str = df.index.min()
+                end_date_str = df.index.max()
 
                 # Fetch all required data
-                long_term_holder_supply = self.fetch_long_term_holder_supply(start_date=start_date_str)
-                exchange_reserve = self.fetch_exchange_reserve(start_date=start_date_str)
-                whale_supply_distribution = self.fetch_whales_from_date(start_date=start_date_str)
-                fees = self.fetch_daily_avg_fees(start_date=start_date_str, end_date=end_date_str)
-                onchain_data = self.get_active_addresses(start_date=start_date_str)
+                onchain_data = self.get_active_addresses(timeframe, start_date_str, end_date_str)
+                long_term_holder_supply = self.fetch_long_term_holder_supply(timeframe, start_date_str, end_date_str)
+                whale_supply_distribution = self.fetch_whales_from_date(timeframe, start_date_str, end_date_str)
+                fees = self.fetch_daily_avg_fees(timeframe, start_date_str, end_date_str)
+                exchange_reserve = None
+                if period == "3y" or period == "1y":
+                    exchange_reserve = self.fetch_exchange_reserve(timeframe, start_date_str, end_date_str)
 
                 # Only proceed with merging if we have the core onchain data
                 if onchain_data is None:
                     logging.warning("No onchain data available - skipping merges")
                     return None
 
-                # Convert all dataframes to timezone-naive for consistent merging
                 dataframes = [df for df in [long_term_holder_supply, whale_supply_distribution, onchain_data, fees] if df is not None]
-                
-                # Only append exchange reserve data if it exists and has data within our time range
-                if exchange_reserve is not None and not exchange_reserve.empty:
-                    earliest_reserve = exchange_reserve.index.min()
-                    if (pd.Timestamp.now() - earliest_reserve).days >= period_value * 365:
-                        dataframes.append(exchange_reserve)
-                for df in dataframes:
-                    if df.index.tz is not None:
-                        df.index = df.index.tz_localize(None)
+                if exchange_reserve is not None:
+                    dataframes.append(exchange_reserve)
+                # Convert all dataframes to timezone-naive for consistent merging
 
                 # Merge all dataframes if we have any
                 if dataframes:
@@ -433,14 +548,14 @@ class OnChainFeatureExtractor:
 
                 merged_data = merged_data.ffill().bfill()
                 # Create output directory
-                output_dir = os.path.join(self.data_dir.split('/')[0], 'process_onchain_features')
+                output_dir = os.path.join(self.data_dir.split('/')[0], '9_process_onchain_features')
                 os.makedirs(output_dir, exist_ok=True)
 
                 # Create output filename with same pattern
                 output_file = os.path.join(output_dir, f'onchain_features_{symbol}_{timeframe}_{period}.pkl.gz')
 
                 try:
-                    onchain_data.to_pickle(output_file)
+                    merged_data.to_pickle(output_file)
                     logging.info(f"Saved on-chain features to: {output_file}")
                 except Exception as e:
                     logging.error(f"Error saving on-chain features: {e}")

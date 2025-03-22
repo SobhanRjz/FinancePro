@@ -166,3 +166,23 @@ cython_debug/
 # Project specific
 feature_engineering.log
 
+# PyTorch
+*.pth
+*.pt
+*.pkl.bz2
+*.pkl.xz
+*.pkl.tar
+*.pkl.tar.gz
+*.pkl.tar.bz2
+*.pkl.tar.xz
+*.pkl.tar.tar
+*.pkl.tar.tar.gz
+*.pkl.tar.tar.bz2
+*.pkl.tar.tar.xz
+
+# MLflow
+mlflow/
+mlruns/
+checkpoints/
+
+

@@ -231,19 +231,6 @@ if __name__ == "__main__":
                     continue
 
 
-                if 'Sentiment_Features' in file_path:
-
-                    # Sum numeric columns and assign to googletrend for matching dates
-                    if merged_df is not None:
-                        numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
-                        if len(numeric_cols) > 0:
-                            numeric_sums = df[numeric_cols].sum(axis=1)
-                            merged_dates = pd.to_datetime(merged_df.index).date
-                            for idx, sum_val in numeric_sums.items():
-                                date_match = merged_dates == pd.to_datetime(idx).date()
-                                if date_match.any():
-                                    for idx in merged_df.index[date_match]:
-                                        merged_df.at[idx, 'googletrend'] = sum_val
 
                 # Initialize merged_df if this is the first valid dataframe
                 # Ensure index is Timestamp type
@@ -254,16 +241,19 @@ if __name__ == "__main__":
                     logger.info(f"Initialized merged dataframe with {len(df.columns)} columns from {feature_dir}")
                 else:
 
-                    if 'Sentiment_Features' not in file_path:
-                        # Merge with existing dataframe
-                        new_cols = [col for col in df.columns if col not in merged_df.columns]
-                        if new_cols:
-                            merged_df = merged_df.join(df[new_cols], how='outer')
-                        logger.info(f"Merged {len(df.columns)} columns from {feature_dir}")
+                    
+                    # Merge with existing dataframe
+                    new_cols = [col for col in df.columns if col not in merged_df.columns]
+                    if new_cols:
+                        merged_df = merged_df.join(df[new_cols], how='outer')
+                    logger.info(f"Merged {len(df.columns)} columns from {feature_dir}")
                 
             except Exception as e:
                 logger.error(f"Error processing {file_path}: {e}")
         
+        # if time_period == '5m':
+        #     merged_df = merged_df.resample('5min').last().fillna(method='ffill').iloc[1:]
+
         if merged_df is not None:
             merged_features[key] = merged_df
             

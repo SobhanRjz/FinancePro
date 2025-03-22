@@ -34,6 +34,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 import pickle
+
 # Get proxy server information from environment variables
 proxy_host = os.environ.get('HTTP_PROXY')  # or 'http_proxy' depending on your environment
 proxy_port = os.environ.get('HTTP_PROXY_PORT')  # or 'http_proxy_port' depending on your environment

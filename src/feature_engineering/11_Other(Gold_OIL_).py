@@ -55,7 +55,7 @@ class OtherFeatureExtractor:
                 "1d": {"period": "1", "precision": "day"},
                 "4h": {"period": "4", "precision": "hour"},
                 "1h": {"period": "1", "precision": "hour"},
-                "5m": {"period": "5", "precision": "minute"}
+                "5m": {"period": "1", "precision": "minute"}
         }
         self.period_precision_map_SP500 = {
                 "1d": {"period": "24", "precision": "Hours"},
@@ -167,11 +167,16 @@ class OtherFeatureExtractor:
                 days_to_add = self.chunk_sizes.get(timeframe, self.chunk_sizes["D"])
                 chunk_end = min(current_start + pd.DateOffset(days=days_to_add), end_dt)
                 
+
                 chunk_start_str = current_start.strftime('%Y-%m-%d')
                 chunk_end_str = chunk_end.strftime('%Y-%m-%d')
-                
+
                 # Check if period is in url_template before formatting
                 if "{period}" in url_template:
+                    if timeframe == '5m' and instrument == 'SPX.IND_CBOM':
+                        chunk_start_str = current_start.strftime('%Y-%m-%d %H:%M').replace("-", "/").replace(' ', '%20')
+                        chunk_end_str = chunk_end.strftime('%Y-%m-%d %H:%M').replace("-", "/").replace(' ', '%20')
+
                     url = url_template.format(
                         instrument=instrument,
                         granularity=period_precision_map.get(timeframe, "D")["period"],
@@ -180,6 +185,10 @@ class OtherFeatureExtractor:
                         end=chunk_end_str
                     )
                 else:
+                    if timeframe == '5m' and instrument == 'XAG/USD':
+                        chunk_start_str = str(int(current_start.timestamp()))
+                        chunk_end_str = str(int(chunk_end.timestamp()))
+
                     url = url_template.format(
                         instrument=instrument,
                         granularity=period_precision_map.get(timeframe, "D"),
@@ -190,7 +199,7 @@ class OtherFeatureExtractor:
                 json_data = self._make_api_request(url, chunk_start_str, chunk_end_str)
                 
                 # Process data based on instrument type
-                if instrument in ['NDAQ', 'NVDA']:
+                if instrument in ['NDAQ', 'NVDA', 'AMD']:
                     if isinstance(json_data, list):
                         for bar in json_data:
                             date_str = f"{bar['StartDate']} {bar['StartTime']}"
@@ -344,7 +353,14 @@ class OtherFeatureExtractor:
             logging.warning("No OHLCV files found to determine time range")
             return
 
-        for file_path in file_paths[0:]:
+        List_of_files = ['data/11_other_features/Gold_Oil_Features_gold_BTCUSDT_5m_1y.pkl.gz',
+                         'data/11_other_features/Gold_Oil_Features_nasdaq_BTCUSDT_5m_1y.pkl.gz',
+                         'data/11_other_features/Gold_Oil_Features_nvidia_BTCUSDT_5m_1y.pkl.gz',
+                         'data/11_other_features/Gold_Oil_Features_oil_BTCUSDT_5m_1y.pkl.gz',
+                         'data/11_other_features/Gold_Oil_Features_sp500_BTCUSDT_5m_1y.pkl.gz',
+                         'data/11_other_features/Gold_Oil_Features_amd_BTCUSDT_5m_1y.pkl.gz',
+                         ]
+        for file_path in file_paths[3:]:
             file_name = os.path.basename(file_path)
             match = re.search(r'([A-Z]+)_(\w+)_(\w+)', file_name)
             
@@ -359,17 +375,25 @@ class OtherFeatureExtractor:
             end_date = df.index.max()
 
             # Fetch all market data
-            market_data = [
-                self.fetch_AMD_data(timeframe, start_date, end_date),
-                self.fetch_Nvidia_data(timeframe, start_date, end_date),
-                self.fetch_Nasdaq_data(timeframe, start_date, end_date),
-                self.fetch_Oil_data(timeframe, start_date, end_date),
-                self.fetch_Gold_data(timeframe, start_date, end_date),
-                self.fetch_Silver_data(timeframe, start_date, end_date),
-                self.fetch_SP500_data(timeframe, start_date, end_date)
-            ]
+            # Fetch individual market data
+            #amd_data = self.fetch_AMD_data(timeframe, start_date, end_date)
+            #sp500_data = self.fetch_SP500_data(timeframe, start_date, end_date)
+            #nvidia_data = self.fetch_Nvidia_data(timeframe, start_date, end_date)
+            #nasdaq_data = self.fetch_Nasdaq_data(timeframe, start_date, end_date)
+            #oil_data = self.fetch_Oil_data(timeframe, start_date, end_date)
+            #gold_data = self.fetch_Gold_data(timeframe, start_date, end_date)
+            #silver_data = self.fetch_Silver_data(timeframe, start_date, end_date)
+            market_data = []
+            for file in List_of_files:
+                df = pd.read_pickle(file)
+                start_date = df.index.min()
+                end_date = df.index.max()
 
-            # Filter out None values and merge available data
+                # Fetch all market data
+                # Fetch individual market data
+                # Combine into list and filter out None values
+                market_data.append(df)
+                
             valid_data = [data for data in market_data if data is not None]
             
             if not valid_data:

@@ -1,0 +1,27 @@
+model:
+  hidden_size: 256
+  num_layers: 3
+  dropout: 0.3
+  num_classes: 3
+  bidirectional: true
+  attention_heads: 8
+  sequence_length: 60
+
+training:
+  learning_rate: 0.001
+  num_epochs: 100
+  batch_size: 64
+  early_stopping_patience: 10
+  checkpoint_dir: checkpoints
+
+data:
+  filename: merged_BTCUSDT_4h_5y.pkl.gz
+  target_column: close # close is the target column
+  train_split: 0.7 
+  val_split: 0.15
+  test_split: 0.15
+  window_size: 72  # 4h * 72 = 12 days of data (recommended 48-96 for 4h timeframe)
+  future_offset: 1  # Predict next 1 steps (8 hours ahead for 4h data)
+  threshold: 0.005  # 0.5% price movement threshold
+  scaler_type: robust # robust scaler is recommended for LSTM models
+  timeframe: 4h 

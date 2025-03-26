@@ -179,6 +179,7 @@ feature_engineering.log
 *.pkl.tar.tar.gz
 *.pkl.tar.tar.bz2
 *.pkl.tar.tar.xz
+*.v2
 
 # MLflow
 mlflow/
@@ -186,3 +187,4 @@ mlruns/
 checkpoints/
 
 
+MaybeFund.rar

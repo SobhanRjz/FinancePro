@@ -1,0 +1,45 @@
+model:
+  # XGBoost parameters
+  n_estimators: 500
+  max_depth: 6
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_weight: 1
+  gamma: 0
+  reg_alpha: 0.1
+  reg_lambda: 1.0
+  objective: 'multi:softprob'
+  eval_metric: ['mlogloss', 'merror']
+  early_stopping_rounds: 30
+  verbosity: 1
+
+training:
+  num_epochs: 1  # XGBoost uses n_estimators instead
+  batch_size: 1024  # For data loading only
+  early_stopping_patience: 20
+  checkpoint_dir: checkpoints/xgb
+  feature_importance_plot: true
+  cross_validation:
+    enabled: true
+    n_splits: 5
+    shuffle: false  # Keep time order for time series
+
+data:
+  filename: merged_BTCUSDT_4h_5y.pkl.gz
+  target_column: close
+  train_split: 0.7
+  val_split: 0.15
+  test_split: 0.15
+  window_size: 96
+  future_offset: 1  # Predict 4 steps ahead
+  threshold: 0.001  # Classification threshold
+  feature_selection: ['num_trades', 'vwap', 'volume', 'num_trades', 'AMD GPU', 'Nvidia GPU', 'Nasdaq',
+                               'oil_price', 'gold_price', 'silver_price', 'S&P 500', 'sma_20',
+                               'sma_50', 'sma_200', 'ema_20', 'ema_50', 'ema_200', 'macd']
+  scaler_type: robust
+  timeframe: 4h
+  feature_engineering:
+    technical_indicators: true
+    lag_features: true
+    rolling_statistics: true 

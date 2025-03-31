@@ -1,0 +1,87 @@
+Feature,Importance,Std
+log_returns,0.16698630136986295,0.002254524304564022
+returns,0.03383561643835611,0.0009727206394122385
+Total_market_cap,0.0,0.0
+solana,0.0,0.0
+shiba inu,0.0,0.0
+dogecoin,0.0,0.0
+ethereum,0.0,0.0
+bitcoin,0.0,0.0
+crypto,0.0,0.0
+btc_dominance,0.0,0.0
+global_volume,0.0,0.0
+open,0.0,0.0
+us_dollar_index,0.0,0.0
+post_meeting,0.0,0.0
+pre_meeting,0.0,0.0
+fed_meeting,0.0,0.0
+gdp_growth_rate,0.0,0.0
+Unemployment Rate,0.0,0.0
+Total Employment,0.0,0.0
+inflation_rate_yoy,0.0,0.0
+inflation_rate_mom,0.0,0.0
+cardano,0.0,0.0
+Donald Trump,0.0,0.0
+elon musk,0.0,0.0
+trend_strength,0.0,0.0
+active_addresses_24h,0.0,0.0
+whale_usd_volume,0.0,0.0
+whale_btc_volume,0.0,0.0
+whale_tx_count,0.0,0.0
+long_term_holder_supply,0.0,0.0
+expanding_spread,0.0,0.0
+rolling_spread_30,0.0,0.0
+momentum_score,0.0,0.0
+mean_reversion_signal,0.0,0.0
+bitcoin price,0.0,0.0
+bb_lower,0.0,0.0
+bb_upper,0.0,0.0
+trend_continuation_probability,0.0,0.0
+above_ema,0.0,0.0
+ema_slope,0.0,0.0
+volatility_cluster_indicator,0.0,0.0
+bb_width,0.0,0.0
+github_activity,0.0,0.0
+CPI,0.0,0.0
+interest_rate,0.0,0.0
+high,0.0,0.0
+macd_signal,0.0,0.0
+ema_200,0.0,0.0
+ema_50,0.0,0.0
+ema_20,0.0,0.0
+sma_200,0.0,0.0
+sma_50,0.0,0.0
+sma_20,0.0,0.0
+S&P 500,0.0,0.0
+silver_price,0.0,0.0
+gold_price,0.0,0.0
+oil_price,0.0,0.0
+Nasdaq,0.0,0.0
+Nvidia GPU,0.0,0.0
+AMD GPU,0.0,0.0
+vwap,0.0,0.0
+num_trades,0.0,0.0
+volume,0.0,0.0
+low,0.0,0.0
+macd,0.0,0.0
+macd_histogram,0.0,0.0
+is_weekend,0.0,0.0
+rsi_14,0.0,0.0
+hour_of_day,0.0,0.0
+day_of_week,0.0,0.0
+drawdown_max,0.0,0.0
+volatility_30,0.0,0.0
+z_score,0.0,0.0
+price_acceleration,0.0,0.0
+price_slope,0.0,0.0
+cci_14,0.0,0.0
+minus_di,0.0,0.0
+plus_di,0.0,0.0
+adx,0.0,0.0
+stochastic_d,0.0,0.0
+stochastic_k,0.0,0.0
+atr_14,0.0,0.0
+bollinger_lower,0.0,0.0
+bollinger_middle,0.0,0.0
+bollinger_upper,0.0,0.0
+avg(fee_usd),0.0,0.0
